@@ -1,0 +1,8 @@
+numpy
+nltk
+pydub
+librosa == 0.8
+numba
+tensorflow-datasets
+tflearn
+matplotlib
