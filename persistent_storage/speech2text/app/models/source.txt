@@ -1,0 +1,2 @@
+both these file can be got from
+https://github.com/mozilla/DeepSpeech/releases/tag/v0.8.2

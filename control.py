@@ -11,6 +11,11 @@ def list_to_nice_string(input):
         output+= term
     return output
 
+def setup_container(options):
+    # used to run the setup function, starting the container and downloading any needed data
+    print("Not implemented")
+    pass
+
 def build_container(options):
     command = ["docker","build"]
     generic_dockerfile_name = "docker_config/Dockerfile_{}".format(options["mode"])
@@ -34,7 +39,7 @@ def run_container(options):
     command.append("--mount type=bind,src={},target=/app".format(   os.path.join(os.getcwd(), "persistent_storage/{}/app".format(options["container"])).replace(" ","\\ ")     ))
     if options["mode"] == "gpu":
         command.append("--gpus all")
-    if options["interactive"] is not None:
+    if options["display"] is not None or options["interactive"] is not None:
         command.append("-it")
     command.append("--rm")
     command.append("--env-file docker_config/env_file.txt")
@@ -43,9 +48,9 @@ def run_container(options):
         command.append("bash")
     else:
         if options["interactive"] is not None:
-            command.append("python3 -i /app/src/main.py")
+            command.append("python3 -i /app/src/app.py")
         else:
-            command.append("python3 /app/src/main.py")
+            command.append("python3 /app/src/app.py")
     command_str = " ".join(command)
     # print("command_str:\n{}".format(command_str))
     if options["dry_run"] is not None:
@@ -66,8 +71,10 @@ def main():
     parser.add_argument('--script', metavar='S', type=str, nargs=1,
                     help='specify script to run in container, or "bash" for shell', default="app.py")
     parser.add_argument('--interactive', metavar='I', action='store_const', const=1,
+                    help='Create interactive session in container')
+    parser.add_argument('--display', action='store_const', const=1,
                     help='Print output of container to be run to screen')
-    parser.add_argument('--dry_run', metavar='D', action='store_const', const=1,
+    parser.add_argument('--dry_run', action='store_const', const=1,
                     help='Print docker command but don\'t run it')
 
     args = vars(parser.parse_args())
@@ -82,7 +89,7 @@ def main():
         return
 
     possible_options = {
-        "function":  ["build","run"],
+        "function":  ["build","run","setup"],
         "mode":      ["cpu","gpu"],
         "container": ["speech2text","text2topic","topic2command"]
     }
@@ -101,6 +108,7 @@ def main():
         "script": args["script"][0],
         "interactive": args["interactive"],
         "dry_run": args["dry_run"],
+        "display": args["display"],
     }
 
     if parts[0] == "build":
@@ -108,6 +116,9 @@ def main():
 
     if parts[0] == "run":
         run_container(options)
+
+    if parts[0] == "setup":
+        setup_container(options)
     
 
 if __name__=="__main__":
