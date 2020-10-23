@@ -4,6 +4,7 @@ import glob
 from deepspeech import Model
 import wavSplit
 import webrtcvad
+import time
 
 # This is just a simplified mockup of the deepspeech demo code, 
 # I stole wavSplit file also from the demo code
@@ -40,7 +41,7 @@ if __name__ == "__main__":
     # we now have the data in the following segments
     # segments, sample_rate, audio_length
     print("we have {} frames".format(len(frames)))
-
+    start = time.time()
     for i, segment in enumerate(segments):
             # Run deepspeech on the chunk that just completed VAD
             print("Processing chunk %002d" % (i,))
@@ -49,3 +50,5 @@ if __name__ == "__main__":
             print('Running inference...')
             output = ds.stt(audio)
             print("Transcript: %s" % output)
+    end = time.time()
+    print("that took: {}".format(end-start))

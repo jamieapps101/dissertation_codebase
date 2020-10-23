@@ -28,7 +28,6 @@ def build_container(options):
     command.append("-t {}:{}".format(options["tag"],options["version"]))
     command.append("./docker_config/build_context")
     command_str = " ".join(command)
-    # print("command_str:\n{}".format(command_str))
     if options["dry_run"] is not None:
         print("command_str:\n{}".format(command_str))
     else:
@@ -52,11 +51,23 @@ def run_container(options):
         else:
             command.append("python3 /app/src/app.py")
     command_str = " ".join(command)
-    # print("command_str:\n{}".format(command_str))
     if options["dry_run"] is not None:
         print("command_str:\n{}".format(command_str))
     else:
         os.system(command_str)   
+
+def run_mosquitto(options):
+    command = ["docker","run"]
+    command.append("--mount type=bind,src={},target=/mosquitto".format(   os.path.join(os.getcwd(), "persistent_storage/{}".format(options["container"])).replace(" ","\\ ")     ))
+    if options["display"] is not None or options["interactive"] is not None:
+        command.append("-it")
+    command.append("-p 1883:1883 -p 9001:9001")
+    command.append("eclipse-mosquitto:1.6")
+    command_str = " ".join(command)
+    if options["dry_run"] is not None:
+        print("command_str:\n{}".format(command_str))
+    else:
+        os.system(command_str)  
 
 
 
@@ -91,7 +102,7 @@ def main():
     possible_options = {
         "function":  ["build","run","setup"],
         "mode":      ["cpu","gpu"],
-        "container": ["speech2text","text2topic","topic2command"]
+        "container": ["speech2text","text2topic","topic2command","mosquitto"]
     }
     # check args
     for i,term in enumerate(list(possible_options)):
@@ -111,13 +122,13 @@ def main():
         "display": args["display"],
     }
 
-    if parts[0] == "build":
+    if parts[2] == "mosquitto":
+        run_mosquitto(options)
+    elif parts[0] == "build":
         build_container(options)
-
-    if parts[0] == "run":
+    elif parts[0] == "run":
         run_container(options)
-
-    if parts[0] == "setup":
+    elif parts[0] == "setup":
         setup_container(options)
     
 

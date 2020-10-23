@@ -4,8 +4,8 @@ Mainly used for POC models, and infra mockups
 
 ## control script usage
 
-<A>.<B>.<C>
+<function>.<mode>.<container>
 
-A - function  = build|run
-B - mode      = cpu|gpu
-C - container = speech2text|text2topic|topic2command
+- function  = build|run|setup
+- mode      = cpu|gpu
+- container = speech2text|text2topic|topic2command|moquitto
