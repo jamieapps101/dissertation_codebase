@@ -1,5 +1,5 @@
 FROM tensorflow/tensorflow:2.3.1-gpu
 COPY requirements.txt requirements.txt
 RUN python3 -m pip install -r requirements.txt
-RUN apt install -y libsndfile1 sox libgomp1 libpthread-stubs0-dev
+RUN apt update && apt install -y graphviz libsndfile1 sox libgomp1 libpthread-stubs0-dev iputils-ping
 WORKDIR /app

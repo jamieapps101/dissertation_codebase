@@ -1,0 +1,6 @@
+FROM tensorflow/tensorflow:1.12.0-gpu-py3
+COPY bert_requirements.txt bert_requirements.txt
+RUN python3 -m pip install -r bert_requirements.txt
+RUN apt update && apt install -y libsndfile1 sox graphviz libgomp1 libpthread-stubs0-dev
+RUN mkdir /tmp/zmq
+WORKDIR /app

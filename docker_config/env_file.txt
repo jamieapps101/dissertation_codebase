@@ -1,1 +1,2 @@
 NLTK_DATA=/app/input_data/nltk_data
+ZEROMQ_SOCK_TMP_DIR=/tmp/zmq
