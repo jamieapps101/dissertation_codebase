@@ -18,7 +18,7 @@ tfds.disable_progress_bar()
 
 
 from tensorflow import keras
-from tensorflow.keras.layers import LSTM,Embedding,Dense,Bidirectional,Softmax,Dot,Attention,MaxPooling1D,Reshape,Add,Concatenate
+from tensorflow.keras.layers import LSTM,Embedding,Dense,Bidirectional,Softmax,Dot,Attention,MaxPooling1D,Reshape,Add,Concatenate,ConvLSTM2D
 from tensorflow.keras import activations
 from tensorflow.keras.utils import plot_model
 
@@ -67,25 +67,59 @@ class self_attention(keras.layers.Layer):
 
 # max_sentence_length makes building the network simpler
 # input sentences shorter than this will need padding    
-def build_Att_BiLSTM(max_sentence_length = 40, LSTM_hidden_state_length = 256, embedding_length = 300, self_attention_enabled=True):
-    comb_opts=['sum', 'mul', 'concat', 'ave', None]
-    inputs = keras.Input(shape=(max_sentence_length,embedding_length,), dtype="float32")
-    
-    x = Bidirectional(LSTM(LSTM_hidden_state_length, activation="tanh",dropout=0.2,recurrent_dropout=0.2, return_sequences=True),merge_mode=comb_opts[2])(inputs)
-    x = Bidirectional(LSTM(LSTM_hidden_state_length, activation="tanh",dropout=0.2,recurrent_dropout=0.2, return_sequences=True),merge_mode=comb_opts[2])(x)
-    
-    outputs = None
-    if self_attention_enabled:
-        # either use the ewer paper's self attention
-        outputs = self_attention(max_sentence_length,LSTM_hidden_state_length)(x)
-    else:
-        # else use the original paper'ss max pooling
-        x = Reshape(target_shape=(max_sentence_length,LSTM_hidden_state_length*2))(x)
-        outputs = MaxPooling1D(pool_size=128, strides=None, padding="same", data_format="channels_last")(x)
+def build_Att_BiLSTM(
+    sentence_sequence_length = 10,
+    max_sentence_length = 40, 
+    LSTM_hidden_state_length = 256, 
+    embedding_length = 300, 
+    self_attention_enabled=True):
 
-    # model = keras.Model(inputs, outputs)
-    # return model
-    return inputs, outputs
+    # inputs = keras.Input(shape=(sentence_sequence_length,max_sentence_length,embedding_length,1,), dtype="float32")
+    inputs = keras.Input(shape=(sentence_sequence_length,max_sentence_length,1,embedding_length), dtype="float32")
+    
+    # x = Bidirectional(LSTM(LSTM_hidden_state_length, activation="tanh",dropout=0.2,recurrent_dropout=0.2, return_sequences=True),merge_mode=comb_opts[2])(inputs)
+    # x = Bidirectional(LSTM(LSTM_hidden_state_length, activation="tanh",dropout=0.2,recurrent_dropout=0.2, return_sequences=True),merge_mode=comb_opts[2])(x)
+    x_forward = ConvLSTM2D(
+        filters = 256,
+        kernel_size=(1,1),
+        strides=(1,1),
+        padding="valid",
+        data_format="channels_last",
+        # recurrent_activation=activations.tanh, # check this
+        return_sequences=True,
+        go_backwards=False,
+        stateful=False
+        # dropout=0.2,
+        # recurrent_dropout=0.2,
+    )(inputs)
+    x_backward = ConvLSTM2D(
+        filters = 256,
+        kernel_size=(1,1),
+        strides=(1,1),
+        padding="valid",
+        data_format="channels_last",
+        recurrent_activation=activations.tanh, # check this
+        return_sequences=True,
+        go_backwards=True,
+        stateful=False,
+        # dropout=0.2,
+        # recurrent_dropout=0.2,
+    )(inputs)
+    x = Add()([x_forward,x_backward])
+
+    
+    # outputs = None
+    # if self_attention_enabled:
+    #     # either use the ewer paper's self attention
+    #     outputs = self_attention(max_sentence_length,LSTM_hidden_state_length)(x_forward)
+    # else:
+    #     # else use the original paper'ss max pooling
+    #     x = Reshape(target_shape=(max_sentence_length,LSTM_hidden_state_length*2))(x)
+    #     outputs = MaxPooling1D(pool_size=128, strides=None, padding="same", data_format="channels_last")(x)
+
+    model = keras.Model(inputs, x)
+    return model
+    # return inputs, x
 
 # This function calls build_Att_BiLSTM to build the global sentence encoder
 def build_sentence_encoder(bert_embedding_length=768):
@@ -133,11 +167,11 @@ class sentence_BiLSTM_self_att(keras.layers.Layer):
 if __name__=="__main__":
     print("Running from {}".format(__file__))
     
-    # model=build_Att_BiLSTM()
+    model=build_Att_BiLSTM()
 
-    inputs,output = build_sentence_encoder()
-    model = keras.Model(inputs, output)
-    model.summary()
+    # inputs,output = build_sentence_encoder()
+    # model = keras.Model(inputs, output)
+    model.summary(line_length=100)
     plot_model(
         model, 
         to_file='model.png', 
