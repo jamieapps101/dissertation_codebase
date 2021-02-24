@@ -18,8 +18,9 @@ tfds.disable_progress_bar()
 
 
 from tensorflow import keras
-from tensorflow.keras.layers import LSTM,Embedding,Dense,Bidirectional,Softmax,Dot,Attention,MaxPooling1D,Reshape,Add,Concatenate,ConvLSTM2D
+from tensorflow.keras.layers import LSTM,Embedding,Dense,Multiply,Bidirectional,Softmax,Dot,Attention,MaxPooling1D,Reshape,Add,Concatenate,ConvLSTM2D
 from tensorflow.keras import activations
+from tensorflow import linalg
 from tensorflow.keras.utils import plot_model
 
 # top level function, to be used by external scripts
@@ -35,7 +36,7 @@ def build_model():
 def build_sentence_encoding_network():
     pass
 
-# topic encdoding BiLSTM layer with attention
+# self attention network to place ontop BiLSTM
 class self_attention(keras.layers.Layer):
     def __init__(self,sequence_length=30,hidden_state_length=128):
         super(self_attention, self).__init__()
@@ -64,54 +65,123 @@ class self_attention(keras.layers.Layer):
         a_it=self.softmax_layer(softmax_in)
         return self.dot_layer2([a_it,h_it])
 
+# sentence encdoding BiLSTM layer
+class conv_BiLSTM(keras.layers.Layer):
+    def __init__(self,
+        sentence_sequence_length = 10,
+        max_sentence_length = 40, 
+        LSTM_hidden_state_length = 256, 
+        embedding_length = 300,layer_name=""):
+        super(conv_BiLSTM, self).__init__()
+        self.x_forward = ConvLSTM2D(
+            filters = 256,
+            kernel_size=(1,1),
+            strides=(1,1),
+            padding="valid",
+            data_format="channels_last",
+            # recurrent_activation=activations.tanh, # check this
+            return_sequences=True,
+            go_backwards=False,
+            stateful=True,
+            # dropout=0.2,
+            # recurrent_dropout=0.2
+        )
+        self.x_backward = ConvLSTM2D(
+            filters = 256,
+            kernel_size=(1,1),
+            strides=(1,1),
+            padding="valid",
+            data_format="channels_last",
+            recurrent_activation=activations.tanh, # check this
+            return_sequences=True,
+            go_backwards=True,
+            stateful=True,
+            # dropout=0.2,
+            # recurrent_dropout=0.2
+        )
+        self.add=Add()
+
+
+    def call(self, input_t):
+        return self.add([self.x_forward(input_t),self.x_backward(input_t)])
+
+
+class custom_SAT(keras.layers.Layer):
+    def __init__(self,
+        sentence_sequence_length = 10,
+        max_sentence_length = 40, 
+        LSTM_hidden_state_length = 256, 
+        embedding_length = 300):
+        super(custom_SAT, self).__init__()
+
+        self.reshaper0 = Reshape(target_shape=(sentence_sequence_length,max_sentence_length,LSTM_hidden_state_length))
+        self.dense0    = Dense(units=LSTM_hidden_state_length,activation=activations.tanh)
+        self.dense1    = Dense(units=LSTM_hidden_state_length,activation=activations.tanh)
+        self.reshaper1 = Reshape(target_shape=(sentence_sequence_length,max_sentence_length,LSTM_hidden_state_length,1))
+        self.reshaper2 = Reshape(target_shape=(sentence_sequence_length,max_sentence_length,1,LSTM_hidden_state_length))
+        self.softmax   = Softmax()
+
+
+    def call(self, x):
+        temp = self.reshaper0(x)
+        keys    = self.dense0(temp)
+        queries = self.dense1(x)
+        # do some weird reshaping here to allow matrix multiplication
+        keys    = self.reshaper1(keys)
+        queries = self.reshaper2(queries)
+        x       = linalg.matmul(keys,queries)
+        x       = self.softmax(x)
+        temp    = self.reshaper1(temp)
+        x       = linalg.matmul(x,temp)
+        x       = self.reshaper0(x)
+
+        return x
+        
+
+
 
 # max_sentence_length makes building the network simpler
 # input sentences shorter than this will need padding    
-def build_Att_BiLSTM(
+def build_conv_Att_BiLSTM(
     sentence_sequence_length = 10,
     max_sentence_length = 40, 
     LSTM_hidden_state_length = 256, 
     embedding_length = 300, 
+    batch_size=1,
     self_attention_enabled=True):
 
     # inputs = keras.Input(shape=(sentence_sequence_length,max_sentence_length,embedding_length,1,), dtype="float32")
-    inputs = keras.Input(shape=(sentence_sequence_length,max_sentence_length,1,embedding_length), dtype="float32")
+    inputs = keras.Input(shape=(sentence_sequence_length,max_sentence_length,1,embedding_length), batch_size=batch_size,dtype="float32",name="Embedding Input Layer")
     
-    # x = Bidirectional(LSTM(LSTM_hidden_state_length, activation="tanh",dropout=0.2,recurrent_dropout=0.2, return_sequences=True),merge_mode=comb_opts[2])(inputs)
-    # x = Bidirectional(LSTM(LSTM_hidden_state_length, activation="tanh",dropout=0.2,recurrent_dropout=0.2, return_sequences=True),merge_mode=comb_opts[2])(x)
-    x_forward = ConvLSTM2D(
-        filters = 256,
-        kernel_size=(1,1),
-        strides=(1,1),
-        padding="valid",
-        data_format="channels_last",
-        # recurrent_activation=activations.tanh, # check this
-        return_sequences=True,
-        go_backwards=False,
-        stateful=False
-        # dropout=0.2,
-        # recurrent_dropout=0.2,
-    )(inputs)
-    x_backward = ConvLSTM2D(
-        filters = 256,
-        kernel_size=(1,1),
-        strides=(1,1),
-        padding="valid",
-        data_format="channels_last",
-        recurrent_activation=activations.tanh, # check this
-        return_sequences=True,
-        go_backwards=True,
-        stateful=False,
-        # dropout=0.2,
-        # recurrent_dropout=0.2,
-    )(inputs)
-    x = Add()([x_forward,x_backward])
+    x = conv_BiLSTM(
+        sentence_sequence_length,
+        max_sentence_length,
+        LSTM_hidden_state_length,
+        embedding_length)(inputs)
+    x = conv_BiLSTM(
+        sentence_sequence_length,
+        max_sentence_length,
+        LSTM_hidden_state_length,
+        embedding_length)(x)
+    
+    # temp = Reshape(target_shape=(sentence_sequence_length,max_sentence_length,LSTM_hidden_state_length))(x)
 
-    
-    # outputs = None
-    # if self_attention_enabled:
-    #     # either use the ewer paper's self attention
-    #     outputs = self_attention(max_sentence_length,LSTM_hidden_state_length)(x_forward)
+    # keys = Dense(units=LSTM_hidden_state_length,activation=activations.tanh)(temp)
+    # queries = Dense(units=LSTM_hidden_state_length,activation=activations.tanh)(x)
+    # # do some weird reshaping here to allow matrix multiplication
+    # keys    = Reshape(target_shape=(sentence_sequence_length,max_sentence_length,LSTM_hidden_state_length,1))(keys)
+    # queries = Reshape(target_shape=(sentence_sequence_length,max_sentence_length,1,LSTM_hidden_state_length))(queries)
+    # x=linalg.matmul(keys,queries)
+    # x=Softmax()(x)
+    # temp    = Reshape(target_shape=(sentence_sequence_length,max_sentence_length,LSTM_hidden_state_length,1))(temp)
+    # x=linalg.matmul(x,temp)
+    # x = Reshape(target_shape=(sentence_sequence_length,max_sentence_length,LSTM_hidden_state_length))(x)
+
+    x = custom_SAT(sentence_sequence_length,
+        max_sentence_length,
+        LSTM_hidden_state_length,
+        embedding_length)(x)
+
     # else:
     #     # else use the original paper'ss max pooling
     #     x = Reshape(target_shape=(max_sentence_length,LSTM_hidden_state_length*2))(x)
@@ -123,7 +193,7 @@ def build_Att_BiLSTM(
 
 # This function calls build_Att_BiLSTM to build the global sentence encoder
 def build_sentence_encoder(bert_embedding_length=768):
-    BiLSTM_inputs,BiLSTM_outputs = build_Att_BiLSTM(
+    BiLSTM_inputs,BiLSTM_outputs = build_conv_Att_BiLSTM(
         max_sentence_length = 40, 
         LSTM_hidden_state_length = 256, 
         embedding_length = 300,
@@ -135,53 +205,17 @@ def build_sentence_encoder(bert_embedding_length=768):
 
     return [BiLSTM_inputs,bert_input],output
 
-class auxilary_task_module(keras.layers.Layer):
-    def __init__(self, window_width=4):
-        super(auxilary_task_module, self).__init__()
-
-
-    def call(self):
-        pass
-
-# This class acts as a single layer, but contains the full sentence
-# level comparison network
-class sentence_BiLSTM_self_att(keras.layers.Layer):
-    def __init__(self,sentence_sequence_length=5,bilstm_hidden_states=256):
-        super(sentence_BiLSTM_self_att, self).__init__()
-        # create first bi-lstm layer
-        self.BiLSTM1 = Bidirectional(
-            LSTM(
-                bilstm_hidden_states, 
-                activation="tanh",
-                dropout=0.2,
-                recurrent_dropout=0.2, 
-                return_sequences=True),
-            merge_mode="sum")
-
-
-
-    def call(self, h_it):
-        pass
 
 
 if __name__=="__main__":
     print("Running from {}".format(__file__))
     
-    model=build_Att_BiLSTM()
+    model=build_conv_Att_BiLSTM()
 
     # inputs,output = build_sentence_encoder()
     # model = keras.Model(inputs, output)
-    model.summary(line_length=100)
-    plot_model(
-        model, 
-        to_file='model.png', 
-        show_shapes=False, 
-        show_dtype=True,
-        show_layer_names=True, 
-        rankdir='TB', 
-        expand_nested=True, 
-        dpi=96
-)
+    model.summary(line_length=160)
+    # plot_model(model,'model.png')
 
 
 
