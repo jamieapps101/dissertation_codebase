@@ -18,7 +18,7 @@ tfds.disable_progress_bar()
 
 
 from tensorflow import keras
-from tensorflow.keras.layers import LSTM,Embedding,Dense,Multiply,Bidirectional,Softmax,Dot,Attention,MaxPooling1D,Reshape,Add,Concatenate,ConvLSTM2D
+from tensorflow.keras.layers import LSTM,Embedding,Dense,Multiply,Bidirectional,Softmax,Dot,Attention,MaxPooling1D,Reshape,Add,Concatenate,ConvLSTM2D,Subtract
 from tensorflow.keras import activations
 from tensorflow import linalg
 from tensorflow.keras.utils import plot_model
@@ -55,6 +55,7 @@ class self_attention(keras.layers.Layer):
         self.sequence_length=sequence_length
         self.hidden_state_length=hidden_state_length
         # self.input_dim = input_dim
+        
 
 
     def call(self, h_it):
@@ -66,13 +67,13 @@ class self_attention(keras.layers.Layer):
         return self.dot_layer2([a_it,h_it])
 
 # sentence encdoding BiLSTM layer
-class conv_BiLSTM(keras.layers.Layer):
+class se_conv_BiLSTM(keras.layers.Layer):
     def __init__(self,
         sentence_sequence_length = 10,
         max_sentence_length = 40, 
         LSTM_hidden_state_length = 256, 
         embedding_length = 300,layer_name=""):
-        super(conv_BiLSTM, self).__init__()
+        super(se_conv_BiLSTM, self).__init__()
         self.x_forward = ConvLSTM2D(
             filters = 256,
             kernel_size=(1,1),
@@ -104,6 +105,124 @@ class conv_BiLSTM(keras.layers.Layer):
 
     def call(self, input_t):
         return self.add([self.x_forward(input_t),self.x_backward(input_t)])
+
+# sentence encoding comparison self attention BiLSTM layer
+class sec_conv_BiLSTM(keras.layers.Layer):
+    def __init__(self,
+        window_length = 10,
+        sentence_encoding_length = 1024):
+        super(sec_conv_BiLSTM, self).__init__()
+
+        self.x_forward_1 = ConvLSTM2D(
+            filters = sentence_encoding_length,
+            kernel_size=(1,1),
+            strides=(1,1),
+            padding="valid",
+            data_format="channels_last",
+            # recurrent_activation=activations.tanh, # check this
+            return_sequences=True,
+            go_backwards=False,
+            stateful=True,
+            # dropout=0.2,
+            # recurrent_dropout=0.2
+        )
+        self.x_backward_1 = ConvLSTM2D(
+            filters = sentence_encoding_length,
+            kernel_size=(1,1),
+            strides=(1,1),
+            padding="valid",
+            data_format="channels_last",
+            recurrent_activation=activations.tanh, # check this
+            return_sequences=True,
+            go_backwards=True,
+            stateful=True,
+            # dropout=0.2,
+            # recurrent_dropout=0.2
+        )
+        self.sub=Subtract()
+        self.reshaper_0 = Reshape(target_shape=(1,window_length,1,sentence_encoding_length))
+        self.reshaper_1 = Reshape(target_shape=(window_length,1,sentence_encoding_length))
+        self.reshaper_2 = Reshape(target_shape=(window_length,sentence_encoding_length,1))
+        self.reshaper_3 = Reshape(target_shape=(window_length,window_length,sentence_encoding_length))
+        self.reshaper_4 = Reshape(target_shape=(window_length,sentence_encoding_length))
+        self.concat     = Concatenate(axis=3)
+        self.multiply   = Multiply()
+        self.softmax    = Softmax(axis=2)# ie the second of the 10 dims (1,10,[10],1024)
+
+
+        self.x_forward_0 = ConvLSTM2D(
+            filters = sentence_encoding_length,
+            kernel_size=(1,1),
+            strides=(1,1),
+            padding="valid",
+            data_format="channels_last",
+            # recurrent_activation=activations.tanh, # check this
+            return_sequences=True,
+            go_backwards=False,
+            stateful=True,
+            # dropout=0.2,
+            # recurrent_dropout=0.2
+        )
+        self.x_backward_0 = ConvLSTM2D(
+            filters = sentence_encoding_length,
+            kernel_size=(1,1),
+            strides=(1,1),
+            padding="valid",
+            data_format="channels_last",
+            recurrent_activation=activations.tanh, # check this
+            return_sequences=True,
+            go_backwards=True,
+            stateful=True,
+            # dropout=0.2,
+            # recurrent_dropout=0.2
+        )
+
+        self.dot = Dot(axes=(1,1))
+
+        initializer = tf.keras.initializers.Ones()
+
+        self.ones_a = tf.Variable(initial_value=initializer((window_length,1,)),
+                               trainable=True)
+        self.ones_b = tf.Variable(initial_value=initializer((1,window_length,)),
+                               trainable=True)
+
+        self.dense = Dense(units=1024,activation=activations.softmax)
+
+
+
+    def call(self, input_t):
+        x          = self.reshaper_0(input_t)
+        x_forward  = self.x_forward_0(x)
+        x_backward = self.x_backward_0(x)
+        h          = self.sub([x_forward,x_backward])
+        x_a        = self.reshaper_1(h)
+        x_b        = self.reshaper_2(h)
+        x_a        = linalg.matmul(self.ones_a,x_a)
+        x_b        = self.reshaper_3(linalg.matmul(x_b,self.ones_b))
+        x_c        = self.multiply([x_a,x_b])
+        x_d        = self.concat([x_a,x_b,x_c])
+        e          = self.dense(x_d)
+        a          = self.softmax(e) # sums on second 10 dim
+        h_flat     = self.reshaper_4(h) # 1,10,1,1024
+
+        # this multiplicaiton is to sum together accross the channels
+        # x          = linalg.matmul(a,h_flat,transpose_a=True,transpose_b=True)    # doesn't run          # doesn't run
+        # x          = linalg.matmul(a,h_flat,transpose_a=False,transpose_b=True)  # outputs (1,10,10,1)   # outputs (1,10,10,10)
+        # x          = linalg.matmul(a,h_flat,transpose_a=True,transpose_b=False)  # doesn't run           # outputs (1,10,1024,1024)
+        x          = linalg.matmul(a,h_flat,transpose_a=False,transpose_b=False) # doesn't run
+
+
+
+        # x          = self.reshaper_5(x)       
+        # x          = self.dot([a,h_flat])
+
+
+        # x          = self.reshaper_0(input_t)
+        # x_forward  = self.x_forward_0(x)
+        # x_backward = self.x_backward_0(x)
+        # h          = self.sub([x_forward,x_backward])
+
+        return x
 
 
 class custom_SAT(keras.layers.Layer):
@@ -160,12 +279,12 @@ def build_conv_Att_BiLSTM(
 
     inputs = keras.Input(shape=(sentence_sequence_length,max_sentence_length,1,embedding_length), batch_size=batch_size,dtype="float32",name="Embedding Input Layer")
     
-    x = conv_BiLSTM(
+    x = se_conv_BiLSTM(
         sentence_sequence_length,
         max_sentence_length,
         LSTM_hidden_state_length,
         embedding_length)(inputs)
-    x = conv_BiLSTM(
+    x = se_conv_BiLSTM(
         sentence_sequence_length,
         max_sentence_length,
         LSTM_hidden_state_length,
@@ -181,11 +300,13 @@ def build_conv_Att_BiLSTM(
 
 # This function calls build_Att_BiLSTM to build the global sentence encoder
 # output can be "softmax" or "attention"
-def build_sentence_encoder(BiLSTM_outputs,bert_embedding_length=768,output="softmax"):
+def build_sentence_encoder(BiLSTM_outputs,sentence_sequence_length,batch_size,bert_embedding_length=768,output="softmax"):
+    bert_input = keras.Input(shape=(sentence_sequence_length,bert_embedding_length),batch_size=batch_size, dtype="float32", name="BERT Input Layer")
+    x = Concatenate()([bert_input,BiLSTM_outputs])
 
-    bert_input = keras.Input(shape=(bert_embedding_length,), dtype="float32")
-
-    output = Concatenate()([bert_input,BiLSTM_outputs])
+    output = sec_conv_BiLSTM(
+        window_length = 10,
+        sentence_encoding_length = 1024)(x)
 
 
     return bert_input,output
@@ -194,11 +315,25 @@ def build_sentence_encoder(BiLSTM_outputs,bert_embedding_length=768,output="soft
 
 if __name__=="__main__":
     print("Running from {}".format(__file__))
+    sentence_sequence_length = 10
+    max_sentence_length = 40
+    LSTM_hidden_state_length = 256
+    embedding_length = 300
+    batch_size=1
     
-    raw_inputs,outputs=build_conv_Att_BiLSTM()
+    raw_inputs,outputs=build_conv_Att_BiLSTM(
+        sentence_sequence_length,
+        max_sentence_length,
+        LSTM_hidden_state_length,
+        embedding_length,
+        batch_size)
 
-    # bert_inputs,outputs = build_sentence_encoder(outputs)
-    model = keras.Model([raw_inputs], outputs)
+    bert_inputs,outputs = build_sentence_encoder(outputs,sentence_sequence_length,batch_size)
+
+
+
+
+    model = keras.Model([raw_inputs,bert_inputs], outputs)
     model.summary(line_length=160)
     # plot_model(model,'model.png')
 

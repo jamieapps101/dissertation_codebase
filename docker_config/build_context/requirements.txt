@@ -10,7 +10,6 @@ webrtcvad
 pyqt5
 webrtcvad
 paho-mqtt==1.5.1
-tensorflow_text
 tf-models-official==2.3.0
 bert-serving-client==1.10.0
 bert-serving-server==1.10.0
