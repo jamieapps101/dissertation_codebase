@@ -3,7 +3,6 @@ nltk
 pydub
 librosa == 0.8
 numba
-tensorflow-datasets
 tflearn
 matplotlib
 deepspeech==0.8.0
@@ -13,7 +12,16 @@ webrtcvad
 paho-mqtt==1.5.1
 tensorflow_text
 tf-models-official==2.3.0
-tensorflow_hub
 bert-serving-client==1.10.0
 bert-serving-server==1.10.0
 pydot
+
+tensorflow==2.4.1
+tensorflow-addons==0.12.1
+tensorflow-datasets==4.2.0
+tensorflow-estimator==2.4.0
+tensorflow-gpu==2.4.1
+tensorflow-hub==0.11.0
+tensorflow-metadata==0.28.0
+tensorflow-model-optimization==0.5.0
+tensorflow-text==2.4.3
