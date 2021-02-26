@@ -4,3 +4,4 @@ RUN python3 -m pip install -r bert_requirements.txt
 RUN apt update && apt install -y libsndfile1 sox graphviz libgomp1 libpthread-stubs0-dev
 RUN mkdir /tmp/zmq
 WORKDIR /app
+CMD bert-serving-start -model_dir BERT_model/uncased_L-24_H-1024_A-16
