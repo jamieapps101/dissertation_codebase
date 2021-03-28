@@ -1,10 +1,14 @@
 # This script puts togeather a model based on "Improving Context Modeling in Neural Topic Segmentation"
 
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
+# 0 = all messages are logged (default behavior)
+# 1 = INFO messages are not printed
+# 2 = INFO and WARNING messages are not printed
+# 3 = INFO, WARNING, and ERROR messages are not printed
+
 # Obvs:
 import tensorflow as tf
-
-# Required for BERT
-import os
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -18,7 +22,7 @@ tfds.disable_progress_bar()
 
 
 from tensorflow import keras
-from tensorflow.keras.layers import LSTM,Embedding,Dense,Multiply,Bidirectional,Softmax,Dot,Attention,MaxPooling1D,Reshape,Add,Concatenate,ConvLSTM2D,Subtract
+from tensorflow.keras.layers import LSTM,Embedding,Dense,Multiply,Bidirectional,Softmax,Dot,Attention,MaxPooling1D,Reshape,Add,Concatenate,ConvLSTM2D,Subtract,RepeatVector
 from tensorflow.keras import activations
 from tensorflow import linalg
 from tensorflow.keras.utils import plot_model
@@ -114,12 +118,12 @@ class sec_conv_BiLSTM(keras.layers.Layer):
         super(sec_conv_BiLSTM, self).__init__()
 
         self.x_forward_1 = ConvLSTM2D(
-            filters = sentence_encoding_length,
+            filters = 1,
             kernel_size=(1,1),
             strides=(1,1),
             padding="valid",
             data_format="channels_last",
-            # recurrent_activation=activations.tanh, # check this
+            recurrent_activation=activations.tanh, # check this
             return_sequences=True,
             go_backwards=False,
             stateful=True,
@@ -127,7 +131,7 @@ class sec_conv_BiLSTM(keras.layers.Layer):
             # recurrent_dropout=0.2
         )
         self.x_backward_1 = ConvLSTM2D(
-            filters = sentence_encoding_length,
+            filters = 1,
             kernel_size=(1,1),
             strides=(1,1),
             padding="valid",
@@ -144,11 +148,17 @@ class sec_conv_BiLSTM(keras.layers.Layer):
         self.reshaper_1 = Reshape(target_shape=(window_length,1,sentence_encoding_length))
         self.reshaper_2 = Reshape(target_shape=(window_length,sentence_encoding_length,1))
         self.reshaper_3 = Reshape(target_shape=(window_length,window_length,sentence_encoding_length))
-        self.reshaper_4 = Reshape(target_shape=(window_length,sentence_encoding_length))
-        self.concat     = Concatenate(axis=3)
+        self.reshaper_4 = Reshape(target_shape=(window_length*sentence_encoding_length,))
+        self.reshaper_5 = Reshape(target_shape=(window_length,window_length,sentence_encoding_length))
+        self.reshaper_6 = Reshape(target_shape=(window_length,sentence_encoding_length))
+        self.reshaper_7 = Reshape(target_shape=(1,window_length,1,sentence_encoding_length*2))
+        self.reshaper_8 = Reshape(target_shape=(1,window_length))
+
+        self.concat_0   = Concatenate(axis=3)
+        self.concat_1   = Concatenate(axis=2)
         self.multiply   = Multiply()
         self.softmax    = Softmax(axis=2)# ie the second of the 10 dims (1,10,[10],1024)
-
+        self.softmax_1    = Softmax(axis=1)# (1,[10])
 
         self.x_forward_0 = ConvLSTM2D(
             filters = sentence_encoding_length,
@@ -178,52 +188,61 @@ class sec_conv_BiLSTM(keras.layers.Layer):
         )
 
         self.dot = Dot(axes=(1,1))
-
         initializer = tf.keras.initializers.Ones()
+        self.ones_a = tf.Variable(initial_value=initializer((window_length,1,)),trainable=True)
+        self.ones_b = tf.Variable(initial_value=initializer((1,window_length,)),trainable=True)
+        self.dense = Dense(units=sentence_encoding_length,activation=activations.softmax)
+        self.repeater0 = RepeatVector(window_length)
 
-        self.ones_a = tf.Variable(initial_value=initializer((window_length,1,)),
-                               trainable=True)
-        self.ones_b = tf.Variable(initial_value=initializer((1,window_length,)),
-                               trainable=True)
-
-        self.dense = Dense(units=1024,activation=activations.softmax)
-
-
-
-    def call(self, input_t):
+    def call(self, input_t): # (1,10,1024)
+        # 1st bilstm
         x          = self.reshaper_0(input_t)
         x_forward  = self.x_forward_0(x)
         x_backward = self.x_backward_0(x)
         h          = self.sub([x_forward,x_backward])
+        h_reduce   = self.reshaper_6(h)
+
+        # concat data
         x_a        = self.reshaper_1(h)
         x_b        = self.reshaper_2(h)
-        x_a        = linalg.matmul(self.ones_a,x_a)
-        x_b        = self.reshaper_3(linalg.matmul(x_b,self.ones_b))
-        x_c        = self.multiply([x_a,x_b])
-        x_d        = self.concat([x_a,x_b,x_c])
+        x_ab        = linalg.matmul(self.ones_a,x_a)
+        x_bb        = self.reshaper_3(linalg.matmul(x_b,self.ones_b))
+        x_c        = self.multiply([x_ab,x_bb])
+        x_d        = self.concat_0([x_ab,x_bb,x_c])
+
+        # dense fully connected layer with softmax
         e          = self.dense(x_d)
-        a          = self.softmax(e) # sums on second 10 dim
-        h_flat     = self.reshaper_4(h) # 1,10,1,1024
+        a          = self.softmax(e) # norms accross second 10 dim
 
-        # this multiplicaiton is to sum together accross the channels
-        # x          = linalg.matmul(a,h_flat,transpose_a=True,transpose_b=True)    # doesn't run          # doesn't run
-        # x          = linalg.matmul(a,h_flat,transpose_a=False,transpose_b=True)  # outputs (1,10,10,1)   # outputs (1,10,10,10)
-        # x          = linalg.matmul(a,h_flat,transpose_a=True,transpose_b=False)  # doesn't run           # outputs (1,10,1024,1024)
-        x          = linalg.matmul(a,h_flat,transpose_a=False,transpose_b=False) # doesn't run
+        # self attention mechanism (though really h_flat should go through a dense layer too)
+        h_flat     = self.reshaper_4(h) # (1,1,10,1,1024)->(1,10*1024)
+        # a          = self.reshaper_5(a) # 1,10,10,1024
 
+        # NOTE - tensor repeating occurs here as the multiply option required
+        # for the operation in the original paper was not availiable, so this was done
+        # instead. Here the original sentence embedding "h_flat" (1,10,1024) is extruded into
+        # a square cross section (1,[10],10,1024), where [] indicates the repeated dimension.
+        # The multiply operation is then used with "a" (1,10,10,1024), which does element wise 
+        # multiplication to form c_square (1,[10],10,1024), which is then summed along the []
+        # axis
+        h_flat_stack = self.repeater0(h_flat) # (1,10*1024)->(1,10,10*1024) 
+        h_square = self.reshaper_5(h_flat_stack) # (1,10,10*1024) -> (1,10,10,1024) 
+        c_square = self.multiply([a,h_square])
+        c = tf.math.reduce_sum(c_square,axis=1) # (1,[10],10,1024) -> (1,10,1024) 
 
+        # concat with original sentence hidden states
+        h_2       = self.concat_1([c,h_reduce])
 
-        # x          = self.reshaper_5(x)       
-        # x          = self.dot([a,h_flat])
+        #second BiLSTM layer
+        x          = self.reshaper_7(h_2)
+        x_forward  = self.x_forward_1(x)
+        x_backward = self.x_backward_1(x)
+        h2          = self.sub([x_forward,x_backward])
+        h2_reduce  = self.reshaper_8(h2)
 
+        out        = self.softmax_1(h2_reduce)
 
-        # x          = self.reshaper_0(input_t)
-        # x_forward  = self.x_forward_0(x)
-        # x_backward = self.x_backward_0(x)
-        # h          = self.sub([x_forward,x_backward])
-
-        return x
-
+        return out
 
 class custom_SAT(keras.layers.Layer):
     def __init__(self,
@@ -300,13 +319,13 @@ def build_conv_Att_BiLSTM(
 
 # This function calls build_Att_BiLSTM to build the global sentence encoder
 # output can be "softmax" or "attention"
-def build_sentence_encoder(BiLSTM_outputs,sentence_sequence_length,batch_size,bert_embedding_length=768,output="softmax"):
+def build_sentence_encoder(BiLSTM_outputs,sentence_sequence_length,batch_size,bert_embedding_length=1024,output="softmax"):
     bert_input = keras.Input(shape=(sentence_sequence_length,bert_embedding_length),batch_size=batch_size, dtype="float32", name="BERT Input Layer")
     x = Concatenate()([bert_input,BiLSTM_outputs])
 
     output = sec_conv_BiLSTM(
         window_length = 10,
-        sentence_encoding_length = 1024)(x)
+        sentence_encoding_length = bert_embedding_length+256)(x)
 
 
     return bert_input,output
@@ -335,7 +354,7 @@ if __name__=="__main__":
 
     model = keras.Model([raw_inputs,bert_inputs], outputs)
     model.summary(line_length=160)
-    # plot_model(model,'model.png')
+    keras.utils.plot_model(model,to_file="model_out.png",show_shapes=True,expand_nested=True)
 
 
 

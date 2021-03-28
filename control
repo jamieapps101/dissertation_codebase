@@ -73,7 +73,7 @@ def run_container(options):
     command.append("{}:{}".format(options["tag"],options["version"]))
     if options["script"] == "bash":
         command.append("bash")
-    elif options["container"]=="word2vec":
+    elif options["container"]=="word2vec" or options["container"]=="bert_as_service":
         pass # Do nothing here, as we don't need to pass a command to this container
     elif options["script"][-3:] == ".py":
         if options["interactive"] is not None:
