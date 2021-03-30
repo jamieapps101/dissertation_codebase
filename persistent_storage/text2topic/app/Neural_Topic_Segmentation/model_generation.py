@@ -16,41 +16,6 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 tf.executing_eagerly()
 
-# import tensorflow_hub as hub
-import tensorflow_datasets as tfds
-tfds.disable_progress_bar()
-
-
-from tensorflow import keras
-from tensorflow.keras.layers import LSTM,Embedding,Dense,Multiply,Bidirectional,Softmax,Dot,Attention,MaxPooling1D,Reshape,Add,Concatenate,ConvLSTM2D,Subtract,RepeatVector
-from tensorflow.keras import activations
-from tensorflow import linalg
-from tensorflow.keras.utils import plot_model
-
-# top level function, to be used by external scripts
-# This function calls all remaining functions in this file and
-# returns a fully build model
-import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
-# 0 = all messages are logged (default behavior)
-# 1 = INFO messages are not printed
-# 2 = INFO and WARNING messages are not printed
-# 3 = INFO, WARNING, and ERROR messages are not printed
-
-# Obvs:
-import tensorflow as tf
-
-import numpy as np
-import matplotlib.pyplot as plt
-
-import tensorflow as tf
-tf.executing_eagerly()
-
-# import tensorflow_hub as hub
-# import tensorflow_datasets as tfds
-# tfds.disable_progress_bar()
-
-
 from tensorflow import keras
 from tensorflow.keras.layers import LSTM,Embedding,Dense,Multiply,Bidirectional,Softmax,Dot,Attention,MaxPooling1D,Reshape,Add,Concatenate,ConvLSTM2D,Subtract,RepeatVector,TimeDistributed
 from tensorflow.keras import activations
@@ -260,23 +225,11 @@ def build_Att_BiLSTM(
     return [word2vec_input,bert_input],se_comp_bilstm2_out
 
 
-def build_Att_BiLSTM2(
-    embedding_length = 300,
-    bert_embedding_length=1024, 
-    batch_size=1,
-    self_attention_enabled=True):
-    lstm_units=embedding_length
-    word2vec_input = keras.Input(shape=(embedding_length), batch_size=batch_size,dtype="float32",name="Embedding Input Layer")
-    t_stacker = RSA_layer(window_size=5,input_units=lstm_units)
-    out = t_stacker(word2vec_input)
-    return word2vec_input,out
-
-
 if __name__=="__main__":
     print("Running from {}".format(__file__))
     
 
-    raw_inputs,outputs = model_gen.build_Att_BiLSTM()
+    raw_inputs,outputs = build_Att_BiLSTM()
 
     model = keras.Model(raw_inputs, outputs)
     model.summary()
