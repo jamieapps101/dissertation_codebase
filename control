@@ -63,6 +63,7 @@ def run_container(options):
     if options["display"] is not None or options["interactive"] is not None:
         command.append("-it")
     command.append("--rm")
+    command.append("--network=\"host\"")
     # This runs docker user with same uid/gid as host user, avoiding mounted fs issues
     command.append("-u $(id -u):$(id -g)")
     command.append("--env-file docker_config/env_file.txt")
