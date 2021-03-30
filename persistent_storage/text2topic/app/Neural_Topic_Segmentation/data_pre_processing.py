@@ -31,7 +31,7 @@ def get_word2vec_encoding(word_data,max_sentence_len,max_sentences):
     out = np.zeros((max_sentences,max_sentence_len,word_encoding_lenth))
 
     if len(word_data) > max_sentences:
-        print("too many sentences ({}/{})".format(len(word_data),max_sentences))
+        # print("too many sentences ({}/{})".format(len(word_data),max_sentences))
         return None
 
     for sentence_index in range(len(word_data)):
@@ -41,7 +41,7 @@ def get_word2vec_encoding(word_data,max_sentence_len,max_sentences):
         response = json.loads(response.content)
 
         if len(sentence)>max_sentence_len:
-            print("too many words ({}/{})".format(len(sentence),max_sentence_len))
+            # print("too many words ({}/{})".format(len(sentence),max_sentence_len))
             return None
 
         for word_index in range(len(sentence)):
@@ -58,7 +58,7 @@ def get_word2vec_encoding(word_data,max_sentence_len,max_sentences):
 
     # print("missing_words: {}".format(missing_words))
     # return data response
-    print("good sample")
+    # print("good sample")
     return out
 
 
@@ -125,6 +125,24 @@ def sample_to_frame(sample,max_sentence_len,bc,bert_encoding_len=1024):
 
     return word2vec_encodings,bert_encodings
 
+
+def write_datasets(data_gt,buffers_written,ext):
+    fn_gt = content[c_index]+"_"+datasets[d_index]+"_"+ext+"_{}.tfrecord".format(buffers_written)
+    path_gt = os.path.join(dataset_dir, fn_gt)
+    data_gt_t = tf.data.Dataset.from_tensor_slices(data_gt)
+
+    # main_dataset = tf.data.Dataset.zip((data_we_t, data_se_t, data_gt_t))
+
+
+    def write_map_fn(inlet):
+        return tf.io.serialize_tensor(inlet)
+    
+    # mapped_dataset = main_dataset.map(write_map_fn)
+    mapped_data_gt_t = data_gt_t.map(write_map_fn)
+
+    writer_gt = tf.data.experimental.TFRecordWriter(path_gt)
+    
+    writer_gt.write(mapped_data_gt_t)
 
 
 if __name__=="__main__":
@@ -246,7 +264,7 @@ if __name__=="__main__":
 
 
                 print("Allocating buffer ram")
-                max_buffer_length = 60
+                max_buffer_length = 500
 
                 # create a data record so we know which samples we have combined before
                 record = np.array([[-1,-1]])
@@ -328,39 +346,24 @@ if __name__=="__main__":
                     if not bad_sample:
                         record = np.append(record,rand_indexes)
                         samples_in_buffer += 1                    
-                        if samples_in_buffer == max_buffer_length:
+                        if samples_in_buffer >= max_buffer_length:
                             print("writing data!")
                             # TODO write out the data here
-
-                
                             
-                            fn_we = content[c_index]+"_"+datasets[d_index]+"_we_{}".format(buffers_written)
-                            fn_se = content[c_index]+"_"+datasets[d_index]+"_se_{}".format(buffers_written)
-                            fn_gt = content[c_index]+"_"+datasets[d_index]+"_gt_{}".format(buffers_written)
-                            
-                            path_we = os.path.join(dataset_dir, fn_we)
-                            path_se = os.path.join(dataset_dir, fn_se)
-                            path_gt = os.path.join(dataset_dir, fn_gt)
 
-                            # convert data to tensor
-                            data_we_t = tf.convert_to_tensor(data_we)
-                            data_se_t = tf.convert_to_tensor(data_se)
-                            data_gt_t = tf.convert_to_tensor(data_gt)
-
-                            with tf.io.TFRecordWriter(path_we) as we_data_writer:
-                                with tf.io.TFRecordWriter(path_se) as se_data_writer:
-                                    with tf.io.TFRecordWriter(path_gt) as gt_data_writer:
-                                        for i in range(samples_in_buffer):  
-
-                                            we_data_writer.write(tf.io.serialize_tensor(data_we_t))
-                                            se_data_writer.write(tf.io.serialize_tensor(data_se_t))
-                                            gt_data_writer.write(tf.io.serialize_tensor(data_gt_t))
-
+                            write_datasets(data_we,buffers_written,"we")
+                            write_datasets(data_se,buffers_written,"se")
+                            write_datasets(data_gt,buffers_written,"gt")
                             # reset data valirables
                             samples_in_buffer = 0
                             buffers_written += 1
-                            exit()
+                            # exit()
                     total_records = record.shape[0]
+                if samples_in_buffer>0:
+                    # write out any remining records after looping
+                    write_datasets(data_we,buffers_written,"we")
+                    write_datasets(data_se,buffers_written,"se")
+                    write_datasets(data_gt,buffers_written,"gt")
 
                     
 
