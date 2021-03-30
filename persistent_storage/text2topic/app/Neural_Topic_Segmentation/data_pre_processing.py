@@ -8,59 +8,63 @@ import threading
 from multiprocessing import Process
 from bert_serving.client import BertClient
 import requests
+import nltk.data
+from nltk.tokenize import sent_tokenize,word_tokenize
 import matplotlib.pyplot as plt
 
 
 # supply array of sentences
-def get_bert_encoding(data,bc):
+def get_bert_encoding(data,bc,max_sentences,bert_encoding_len):
     # post request to bert as a service
     # for each sentence
-    for S in data:
-        pass
+    output = np.array([max_sentences,bert_encoding_len])
+    
+    output = bc.encode(data)
     # return data response
-    return np.arange(1024)
+    return output
 
 # supply array of array of words
-def get_word2vec_encoding(word_data,max_sentence_len):
+def get_word2vec_encoding(word_data,max_sentence_len,max_sentences):
     # post request to word to vec container
     word_encoding_lenth = 300
-    n_sentences = len(data)
-    out = np.zeros((n_sentences,max_sentence_len,word_encoding_lenth))
+    # using zero for padding
+    out = np.zeros((max_sentences,max_sentence_len,word_encoding_lenth))
 
-    # get s lengths to break down returned data later
-    s_lengths = []
-    for s in range(len(data)):
-        s_lengths.append(len(data[s]))
-    
-    # join all words to send to word2vec
-    words = []
-    for s in data:
-        words += s
-    
+    if len(word_data) > max_sentences:
+        print("too many sentences ({}/{})".format(len(word_data),max_sentences))
+        return None
 
-    # send 
-    response = requests.get("http://jamie-laptop:3030/convert/",data=json.dumps({"words": words}))
-    response = json.loads(response.content)
+    for sentence_index in range(len(word_data)):
+        sentence = word_data[sentence_index]
+        # send 
+        response = requests.get("http://127.0.0.1:3030/convert/",data=json.dumps({"words": sentence}))
+        response = json.loads(response.content)
 
-    w_i_g = 0
-    for s_i in range(n_sentences):
-        # get sentence length
-        current_sentence_len = len(data)
-        for w_i_l in range(current_sentence_len): 
-            if response[w_i_g] is None:
-                return None # Indicate that this sample is contaminated with an unknown word
-            out[s_i,w_i_l,:] = np.array(response[w_i_g])
-            w_i_g = w_i_g+1
+        if len(sentence)>max_sentence_len:
+            print("too many words ({}/{})".format(len(sentence),max_sentence_len))
+            return None
 
-    print(out)
-    exit(0)
+        for word_index in range(len(sentence)):
+            word_text = sentence[word_index]
+            response_data = response["data"][word_text]
+            
+            if response_data is not None:
+                out[sentence_index,word_index,:] = np.array(response_data)
+                # print("no entry for {}".format(word_text))
+                # have a list of common words that we'll ignore for now
+                # if word_text not in ["of"]:
+                    # missing_words = missing_words+1
+                    #  return None # cannot use this sample as it has an unrecognised word
 
+    # print("missing_words: {}".format(missing_words))
     # return data response
+    print("good sample")
     return out
 
 
 data_info_csv_name="data_info.csv"
 data_dir = "/app/data/"
+dataset_dir = "/app/data/processed"
 raw_ds_fn = ["wikisection_en_","_",".json"]
 
 discordant_pairs = 100
@@ -117,7 +121,7 @@ def sample_to_frame(sample,max_sentence_len,bc,bert_encoding_len=1024):
 
     # first encode the sentences with bert
     bert_encodings = get_bert_encoding(S,bc)
-    word2vec_encodings = get_word2vec_encoding([word_exp.findall(s) for s in sentence_split_exp.split(S) if len(s)>0],max_sentence_len)
+    # word2vec_encodings = get_word2vec_encoding([word_exp.findall(s) for s in sentence_split_exp.split(S) if len(s)>0],max_sentence_len)
 
     return word2vec_encodings,bert_encodings
 
@@ -205,12 +209,170 @@ if __name__=="__main__":
         fig.savefig("distribution.png")
 
              
-
     if mode=="extract":
+        print("extract mode")
+        # connect to bert client
+        # bc = BertClient(ip="jamie-laptop") # this defo wants fixing
+        bc = BertClient(ip="127.0.0.1") # this defo wants fixing
+        max_sentence_len = 80
+        max_sentences_per_sample = 80 # this is for both segments
+        word2vec_encoding_len = 300
+        bert_encoding_len = 1024
+
+        word_exp = re.compile("[a-zA-Z\-]+")
+        sentence_split_exp = re.compile("[.\\n]")
+
+        samples_per_set = [
+            [1000,2000,7000], # disease
+            [1000,2000,7000], # city
+        ]
+
+        print("beginning")
+        for c_index in range(len(content)):
+            for d_index in range(len(datasets)):
+                print("c_index={}, d_index={}".format(c_index,d_index))
+                fn = raw_ds_fn[0]+content[c_index]+raw_ds_fn[1]+datasets[d_index]+raw_ds_fn[2]
+
+                # read in file
+                raw_data_path = os.path.join(data_dir,"raw/WikiSection-master",fn)
+                data = None
+                with open(raw_data_path,"r") as fp:
+                    print("successfully opened {}".format(fn))
+                    data = json.load(fp)
+                if data is None:
+                    print("error loading {}, skipping file".format(fn))
+                    continue
+                print("data loaded")
+
+
+                print("Allocating buffer ram")
+                max_buffer_length = 60
+
+                # create a data record so we know which samples we have combined before
+                record = np.array([[-1,-1]])
+
+                # [sample,sentence index,word index, embedding length]
+                data_we = np.zeros([
+                    # samples_per_set[c_index][d_index], 
+                    max_buffer_length,
+                    max_sentences_per_sample,
+                    max_sentence_len,
+                    word2vec_encoding_len,
+                    ])
+                # [sample,sentence index, embedding length]
+                data_se = np.zeros([
+                    # samples_per_set[c_index][d_index], 
+                    max_buffer_length,
+                    max_sentences_per_sample,
+                    bert_encoding_len
+                ]) 
+                # [sample,sentence index, 1], where 1 is a bool indicating topic change
+                data_gt = np.zeros([
+                    # samples_per_set[c_index][d_index], 
+                    max_buffer_length,
+                    max_sentences_per_sample,
+                    1
+                ])
+
+                samples_in_buffer = 0
+                buffers_written = 0
+
+                samples = len(data)
+                print("max samples: {}".format(samples))
+                print("beginning sample generation")
+                # loop and keep on looping until the required number of samples
+                total_records = record.shape[0]
+                while total_records<samples_per_set[c_index][d_index]:
+                    if total_records%50 == 0:
+                        print("generated {} records".format(total_records))
+                    # gen some random indexes
+                    while True:
+                        rand_indexes = np.random.randint(samples,size=(2))
+                        if not np.any(record == rand_indexes):
+                            break
+                    # for each sample, get sentences encodings and word encodings
+                    previous_sentences = 0
+                    bad_sample = False
+                    remaining_sentences = max_sentences_per_sample
+                    for index in [0,1]:
+                        # split sample into sentences
+                        word_exp = re.compile("[a-zA-Z\-'`]+")
+                        sentence_split_exp = re.compile("([a-z0-9])\.[\s\\n]+[A-Z0-9]")
+                        # sentences = sentence_split_exp.split(data[index]["text"])
+                        sentences = sent_tokenize(data[rand_indexes[index]]["text"])
+
+                        # first encode the sentences with bert
+                        # word2vec_encodings = get_word2vec_encoding([word_exp.findall(s) for s in sentences if len(s)>0],max_sentence_len,max_sentences_per_sample)
+                        word_regex = re.compile("[a-zA-Z]+")
+                        word2vec_encodings = get_word2vec_encoding([[w for w in word_tokenize(s) if word_regex.search(w) is not None] for s in sentences if len(s)>0],max_sentence_len,remaining_sentences)
+                        # exit()
+                        if word2vec_encodings is None:
+                            bad_sample = True
+                            break
+                        bert_encodings = get_bert_encoding(sentences,bc,max_sentences_per_sample,bert_encoding_len)
+                        # add data into buffer
+                        # if this is the first index
+                        if index == 0: 
+                            data_we[samples_in_buffer,0:len(sentences),:,:] = word2vec_encodings[0:len(sentences),:,:]
+                            data_se[samples_in_buffer,0:len(sentences),:] = bert_encodings
+                            previous_sentences = len(sentences)
+                            remaining_sentences -= len(sentences)
+                        else:
+                        # if this is the second index
+                            data_we[samples_in_buffer,previous_sentences:previous_sentences+len(sentences),:,:] = word2vec_encodings[0:len(sentences),:,:]
+                            data_se[samples_in_buffer,previous_sentences:previous_sentences+len(sentences),:] = bert_encodings
+                            # set first sentence here to have a 1 label
+                            data_gt[samples_in_buffer,previous_sentences,0]=1
+                            previous_sentences = 0
+
+                    if not bad_sample:
+                        record = np.append(record,rand_indexes)
+                        samples_in_buffer += 1                    
+                        if samples_in_buffer == max_buffer_length:
+                            print("writing data!")
+                            # TODO write out the data here
+
+                
+                            
+                            fn_we = content[c_index]+"_"+datasets[d_index]+"_we_{}".format(buffers_written)
+                            fn_se = content[c_index]+"_"+datasets[d_index]+"_se_{}".format(buffers_written)
+                            fn_gt = content[c_index]+"_"+datasets[d_index]+"_gt_{}".format(buffers_written)
+                            
+                            path_we = os.path.join(dataset_dir, fn_we)
+                            path_se = os.path.join(dataset_dir, fn_se)
+                            path_gt = os.path.join(dataset_dir, fn_gt)
+
+                            # convert data to tensor
+                            data_we_t = tf.convert_to_tensor(data_we)
+                            data_se_t = tf.convert_to_tensor(data_se)
+                            data_gt_t = tf.convert_to_tensor(data_gt)
+
+                            with tf.io.TFRecordWriter(path_we) as we_data_writer:
+                                with tf.io.TFRecordWriter(path_se) as se_data_writer:
+                                    with tf.io.TFRecordWriter(path_gt) as gt_data_writer:
+                                        for i in range(samples_in_buffer):  
+
+                                            we_data_writer.write(tf.io.serialize_tensor(data_we_t))
+                                            se_data_writer.write(tf.io.serialize_tensor(data_se_t))
+                                            gt_data_writer.write(tf.io.serialize_tensor(data_gt_t))
+
+                            # reset data valirables
+                            samples_in_buffer = 0
+                            buffers_written += 1
+                            exit()
+                    total_records = record.shape[0]
+
+                    
+
+
+                    
+
+
+
+    if mode=="extract" and False:
         # connect to bert client
         bc = BertClient(ip="jamie-laptop") # this defo wants fixing
         max_sentence_len = 60
-        max_no_sentences = 10
         word2vec_encoding_len = 300
         bert_encoding_len = 1024
 
