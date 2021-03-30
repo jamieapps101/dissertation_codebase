@@ -2,4 +2,7 @@ FROM tensorflow/tensorflow:2.4.1-gpu
 COPY requirements.txt requirements.txt
 RUN python3 -m pip install -r requirements.txt
 RUN apt update && apt install -y graphviz libsndfile1 sox libgomp1 libpthread-stubs0-dev iputils-ping
+
+RUN python3 -m nltk.downloader -d /usr/local/share/nltk_data punkt
+
 WORKDIR /app

@@ -1,7 +1,9 @@
-FROM tensorflow/tensorflow:2.3.1
+FROM tensorflow/tensorflow:2.4.1
 COPY ./requirements.txt ./requirements.txt
 RUN python3 -m pip install -r ./requirements.txt
 RUN apt update && apt install -y libsndfile1 sox libgomp1  libpthread-stubs0-dev iputils-ping graphviz
+
+RUN python3 -c "import nltk; nltk.download('punkt')"
 WORKDIR /app
 
 
