@@ -126,6 +126,27 @@ def sample_to_frame(sample,max_sentence_len,bc,bert_encoding_len=1024):
     return word2vec_encodings,bert_encodings
 
 
+def write_datasets_zipped(data_we,data_se,data_gt,fn):
+    # zip datasets togeather
+    zipped = tf.data.Dataset.zip(
+        (
+            tf.data.Dataset.from_tensor_slices(data_we),
+            tf.data.Dataset.from_tensor_slices(data_se),
+            tf.data.Dataset.from_tensor_slices(data_gt)
+            )
+    )
+
+    def write_map_fn(x1, x2, x3):
+        return tf.io.serialize_tensor(x1)+tf.io.serialize_tensor(x2)+tf.io.serialize_tensor(x3)
+        # return tf.io.serialize_tensor(inlet)
+    mapped_data = zipped.map(write_map_fn)
+    # fn     = content[c_index]+"_"+datasets[d_index]+"_{}.tfrecord".format(buffers_written)
+    path   = os.path.join(dataset_dir, fn)
+    writer = tf.data.experimental.TFRecordWriter(path)
+    writer.write(mapped_data)
+
+
+
 def write_datasets(data_gt,buffers_written,ext):
     fn_gt = content[c_index]+"_"+datasets[d_index]+"_"+ext+"_{}.tfrecord".format(buffers_written)
     path_gt = os.path.join(dataset_dir, fn_gt)
@@ -241,8 +262,8 @@ if __name__=="__main__":
         sentence_split_exp = re.compile("[.\\n]")
 
         samples_per_set = [
-            [1000,2000,7000], # disease
-            [1000,2000,7000], # city
+            [100,200,700], # disease
+            [100,200,700], # city
         ]
 
         print("beginning")
@@ -264,7 +285,13 @@ if __name__=="__main__":
 
 
                 print("Allocating buffer ram")
-                max_buffer_length = 500
+                max_buffer_length = 1000
+
+                actual_buffer_length = max_buffer_length 
+                if max_buffer_length>samples_per_set[c_index][d_index]:
+                    actual_buffer_length=samples_per_set[c_index][d_index]
+
+                print("using buffer length: {}".format(actual_buffer_length))
 
                 # create a data record so we know which samples we have combined before
                 record = np.array([[-1,-1]])
@@ -272,7 +299,7 @@ if __name__=="__main__":
                 # [sample,sentence index,word index, embedding length]
                 data_we = np.zeros([
                     # samples_per_set[c_index][d_index], 
-                    max_buffer_length,
+                    actual_buffer_length,
                     max_sentences_per_sample,
                     max_sentence_len,
                     word2vec_encoding_len,
@@ -280,14 +307,14 @@ if __name__=="__main__":
                 # [sample,sentence index, embedding length]
                 data_se = np.zeros([
                     # samples_per_set[c_index][d_index], 
-                    max_buffer_length,
+                    actual_buffer_length,
                     max_sentences_per_sample,
                     bert_encoding_len
                 ]) 
                 # [sample,sentence index, 1], where 1 is a bool indicating topic change
                 data_gt = np.zeros([
                     # samples_per_set[c_index][d_index], 
-                    max_buffer_length,
+                    actual_buffer_length,
                     max_sentences_per_sample,
                     1
                 ])
@@ -340,7 +367,10 @@ if __name__=="__main__":
                             data_we[samples_in_buffer,previous_sentences:previous_sentences+len(sentences),:,:] = word2vec_encodings[0:len(sentences),:,:]
                             data_se[samples_in_buffer,previous_sentences:previous_sentences+len(sentences),:] = bert_encodings
                             # set first sentence here to have a 1 label
-                            data_gt[samples_in_buffer,previous_sentences,0]=1
+                            if rand_indexes[0] != rand_indexes[1]:
+                                data_gt[samples_in_buffer,previous_sentences,0]=1
+                            else:
+                                print("same record found!")
                             previous_sentences = 0
 
                     if not bad_sample:
@@ -350,20 +380,23 @@ if __name__=="__main__":
                             print("writing data!")
                             # TODO write out the data here
                             
-
-                            write_datasets(data_we,buffers_written,"we")
-                            write_datasets(data_se,buffers_written,"se")
-                            write_datasets(data_gt,buffers_written,"gt")
+                            fn = content[c_index]+"_"+datasets[d_index]+"_{}.tfrecord".format(buffers_written)
+                            write_datasets_zipped(data_we,data_se,data_gt,fn)
+                            # write_datasets(data_we,buffers_written,"we")
+                            # write_datasets(data_se,buffers_written,"se")
+                            # write_datasets(data_gt,buffers_written,"gt")
                             # reset data valirables
                             samples_in_buffer = 0
                             buffers_written += 1
                             # exit()
                     total_records = record.shape[0]
                 if samples_in_buffer>0:
+                    fn = content[c_index]+"_"+datasets[d_index]+"_{}.tfrecord".format(buffers_written)
+                    write_datasets_zipped(data_we,data_se,data_gt,fn)
                     # write out any remining records after looping
-                    write_datasets(data_we,buffers_written,"we")
-                    write_datasets(data_se,buffers_written,"se")
-                    write_datasets(data_gt,buffers_written,"gt")
+                    # write_datasets(data_we,buffers_written,"we")
+                    # write_datasets(data_se,buffers_written,"se")
+                    # write_datasets(data_gt,buffers_written,"gt")
 
                     
 

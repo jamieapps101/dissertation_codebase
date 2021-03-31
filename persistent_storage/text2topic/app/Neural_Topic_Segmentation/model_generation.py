@@ -29,14 +29,14 @@ class se_BiLSTM(keras.layers.Layer):
         super(se_BiLSTM, self).__init__()
         self.x_forward = LSTM(
             units = 256,
-            recurrent_activation=activations.tanh, # check this
+            # recurrent_activation=activations.tanh, # check this
             return_sequences=return_sequences,
             go_backwards=False,
             stateful=True,
         )
         self.x_backward = LSTM(
             units = 256,
-            recurrent_activation=activations.tanh, # check this
+            # recurrent_activation=activations.tanh, # check this
             return_sequences=return_sequences,
             go_backwards=True,
             stateful=True,
@@ -82,14 +82,14 @@ class se_comp_BiLSTM(keras.layers.Layer):
         super(se_comp_BiLSTM, self).__init__()
         self.x_forward = LSTM(
             units = lstm_units,
-            recurrent_activation=activations.tanh, # check this
+            # recurrent_activation=activations.tanh, # check this
             return_sequences=True,
             go_backwards=False,
             stateful=True,
         )
         self.x_backward = LSTM(
             units = lstm_units,
-            recurrent_activation=activations.tanh, # check this
+            # recurrent_activation=activations.tanh, # check this
             return_sequences=True,
             go_backwards=True,
             stateful=True,
@@ -102,11 +102,12 @@ class se_comp_BiLSTM(keras.layers.Layer):
 # This item collects previous inputs, and performes the selective self attention
 # while returning outputs of the same shape for lstm after wards
 class RSA_layer(keras.layers.Layer):
-    def __init__(self, window_size,input_units):
+    def __init__(self, window_size,input_units,batch_size=64):
         self_attention_output_units = input_units
         self.input_units = input_units
         super(RSA_layer, self).__init__()
         self.window_size = window_size
+        self.batch_size = batch_size
         self.state = tf.zeros([input_units,window_size],dtype=tf.float32)
         temp = np.zeros((window_size,window_size-1))
         for i in range(window_size-1):
@@ -130,65 +131,30 @@ class RSA_layer(keras.layers.Layer):
         # shift state back one
         # self.state 256,5
         # self.state_shift 5,4
-        shifted_state = tf.matmul(self.state,self.state_shift) # 256,4
+        shifted_state = tf.matmul(self.state,self.state_shift) # <batch_size>,None,256,4
         transposed_input_tensor = tf.transpose(input_tensor) # 256,1
-        self.state = tf.concat([shifted_state,transposed_input_tensor],axis=-1) # 256,5
+        # self.state = tf.concat([shifted_state,transposed_input_tensor],axis=-1) # 256,5
         
         # helps make the maths prettier
-        flip_state = tf.transpose(self.state) # 5,256
+        # flip_state = tf.transpose(self.state) # 5,256
 
-        h_i = tf.stack([flip_state for i in range(self.window_size)],axis=0) # 5n,5,256
-        h_j = tf.stack([flip_state for i in range(self.window_size)],axis=1) # 5,5n,256
-        h_i_dot_h_j = tf.math.reduce_sum(tf.multiply(h_i,h_j),axis=2,keepdims=True) # 5,5,1
+        # h_i = tf.stack([flip_state for i in range(self.window_size)],axis=0) # 5n,5,256
+        # h_j = tf.stack([flip_state for i in range(self.window_size)],axis=1) # 5,5n,256
+        # h_i_dot_h_j = tf.math.reduce_sum(tf.multiply(h_i,h_j),axis=2,keepdims=True) # 5,5,1
         
 
-        se_ij = tf.concat([h_i,h_j,h_i_dot_h_j],axis=-1) # 5,5,513
+        # se_ij = tf.concat([h_i,h_j,h_i_dot_h_j],axis=-1) # 5,5,513
         # add in dense layer for each h_ij. sam layer applied
         # to every i,j combination
-        sim_ij = tf.matmul(se_ij,self.w)+self.b # 5,5,256
-        a_ij = tf.nn.softmax(sim_ij,axis=1) # 5,5(norm on this axis),256
+        # sim_ij = tf.matmul(se_ij,self.w)+self.b # 5,5,256
+        # a_ij = tf.nn.softmax(sim_ij,axis=1) # 5,5(norm on this axis),256
 
         # TODO, try replacing this with h_j
-        c_i = tf.math.reduce_sum(tf.math.multiply(h_i,a_ij),axis=1) # 5,256
-        c_last = c_i[-1,:]
-        c_last_reshaped = tf.reshape(c_last,[1,self.input_units]) 
-        # return tf.reshape(c_last,[self.input_units,1])
-        return c_last_reshaped
+        # c_i = tf.math.reduce_sum(tf.math.multiply(h_i,a_ij),axis=1) # 5,256
+        # c_last = c_i[-1,:]
+        # c_last_reshaped = tf.reshape(c_last,[1,self.input_units]) 
+        return input_tensor
 
-
-# class AuxTaskModule(keras.layers.Layer):
-#     def __init__(self, window_size,input_units):
-#         super(AuxTaskModule, self).__init__()
-#         self.state = tf.zeros([input_units,window_size],dtype=tf.float32)
-
-#     def call(self, input_tensor):
-#         # shift state back one
-#         # self.state 256,5
-#         # self.state_shift 5,4
-#         shifted_state = tf.matmul(self.state,self.state_shift) # 256,4
-#         transposed_input_tensor = tf.transpose(input_tensor) # 256,1
-#         self.state = tf.concat([shifted_state,transposed_input_tensor],axis=-1) # 256,5
-        
-#         # helps make the maths prettier
-#         flip_state = tf.transpose(self.state) # 5,256
-
-#         h_i = tf.stack([flip_state for i in range(self.window_size)],axis=0) # 5n,5,256
-#         h_j = tf.stack([flip_state for i in range(self.window_size)],axis=1) # 5,5n,256
-#         h_i_dot_h_j = tf.math.reduce_sum(tf.multiply(h_i,h_j),axis=2,keepdims=True) # 5,5,1
-        
-
-#         se_ij = tf.concat([h_i,h_j,h_i_dot_h_j],axis=-1) # 5,5,513
-#         # add in dense layer for each h_ij. sam layer applied
-#         # to every i,j combination
-#         sim_ij = tf.matmul(se_ij,self.w)+self.b # 5,5,256
-#         a_ij = tf.nn.softmax(sim_ij,axis=1) # 5,5(norm on this axis),256
-
-#         # TODO, try replacing this with h_j
-#         c_i = tf.math.reduce_sum(tf.math.multiply(h_i,a_ij),axis=1) # 5,256
-#         c_last = c_i[-1,:]
-#         c_last_reshaped = tf.reshape(c_last,[1,self.input_units]) 
-#         # return tf.reshape(c_last,[self.input_units,1])
-#         return c_last_reshaped
 
 
 # build sentence level BiLSTM layers
@@ -203,8 +169,8 @@ def build_Att_BiLSTM(
     # 2 - None - no of sentence
     # 3 - None - no of words
     # 4 - 300 - word encoding size
-    word2vec_input = keras.Input(shape=(None,None,embedding_length), batch_size=batch_size,dtype="float32",name="Embedding Input Layer")
-    bert_input = keras.Input(shape=(None,bert_embedding_length),batch_size=batch_size, dtype="float32", name="BERT Input Layer")
+    word2vec_input = keras.Input(shape=(None,None,embedding_length), batch_size=batch_size,dtype="float32",name="WE")
+    bert_input = keras.Input(shape=(None,bert_embedding_length),batch_size=batch_size, dtype="float32", name="SE")
     se_out = TimeDistributed(se_Att_BiLSTM())(word2vec_input)
     se_bert_out = Concatenate()([bert_input,se_out])
 
@@ -219,17 +185,19 @@ def build_Att_BiLSTM(
     
 
     # sentence_encodings_stack = TimeDistributed(d)(se_comp_bilstm1_out)
-    out = tf.concat([se_comp_bilstm1_out,sentence_encodings_stack],axis=-1)
-    se_comp_bilstm2_out = se_comp_BiLSTM(lstm_units)(out)
+    # out = tf.concat([se_comp_bilstm1_out,sentence_encodings_stack],axis=-1)
+    # se_comp_bilstm2_out = se_comp_BiLSTM(lstm_units)(out)
 
-    return [word2vec_input,bert_input],se_comp_bilstm2_out
+    # softmax_out = Softmax(name="boundry_out")(se_comp_bilstm2_out)
+
+    return [word2vec_input,bert_input],sentence_encodings_stack
 
 
 if __name__=="__main__":
     print("Running from {}".format(__file__))
     
 
-    raw_inputs,outputs = build_Att_BiLSTM()
+    raw_inputs,outputs = build_Att_BiLSTM(batch_size=64)
 
     model = keras.Model(raw_inputs, outputs)
     model.summary()

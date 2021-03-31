@@ -21,64 +21,78 @@ from tensorflow.keras.utils import plot_model
 import model_generation
 
 
+def get_and_zip_data(files,dataset_dir):
+    train_we_ds      = tf.data.TFRecordDataset([dataset_dir+files[0] for file_name in train_we_files]).map(lambda x: tf.io.parse_tensor(x, tf.float64))
+    train_se_ds      = tf.data.TFRecordDataset([dataset_dir+files[1] for file_name in train_se_files]).map(lambda x: tf.io.parse_tensor(x, tf.float64))
+    train_gt_ds      = tf.data.TFRecordDataset([dataset_dir+files[2] for file_name in train_gt_files]).map(lambda x: tf.io.parse_tensor(x, tf.float64))
+    return tf.data.Dataset.zip((train_we_ds,train_se_ds,train_gt_ds))
 
 if __name__=="__main__":
     # get model
-    raw_inputs,outputs = model_generation.build_Att_BiLSTM()
-    model = keras.Model(raw_inputs, outputs)
 
 
     # load data
-    dataset_dir = "/app/data/processed"
+    dataset_dir = "/app/data/processed/prev/"
     files = os.listdir(dataset_dir)
     train_files = [file_name for file_name in files if "train" in file_name]
     test_files = [file_name for file_name in files if "test" in file_name]
     validation_files = [file_name for file_name in files if "validation" in file_name]
 
     # overide this for testing
-    train_we_files         = ["disease_train_we_0.tfrecord"]
-    train_se_files         = ["disease_train_se_0.tfrecord"]
-    train_gt_files         = ["disease_train_gt_0.tfrecord"]
-    test_we_files          = ["disease_test_we_0.tfrecord"]
-    test_se_files          = ["disease_test_se_0.tfrecord"]
-    test_gt_files          = ["disease_test_gt_0.tfrecord"]
-    validation_we_files    = ["disease_validation_we_0.tfrecord"]
-    validation_se_files    = ["disease_validation_se_0.tfrecord"]
-    validation_gt_files    = ["disease_validation_gt_0.tfrecord"]
+    # train_data = []
+    # for i in range(7):
+    #     train_we_files      = ["disease_train_we_{}.tfrecord".format(i)]
+    #     train_se_files      = ["disease_train_se_{}.tfrecord".format(i)]
+    #     train_gt_files      = ["disease_train_gt_{}.tfrecord".format(i)]
+    #     file_names = train_we_files+train_se_files+train_gt_files
+    #     zipped_data = get_and_zip_data(files,dataset_dir)
+    #     train_data.append(zipped_data)
 
-    train_we_ds         = tf.data.TFRecordDataset(train_we_files)
-    train_se_ds         = tf.data.TFRecordDataset(train_se_files)
-    train_gt_ds         = tf.data.TFRecordDataset(train_gt_files)
-    test_we_ds          = tf.data.TFRecordDataset(test_we_files)
-    test_se_ds          = tf.data.TFRecordDataset(test_se_files)
-    test_gt_ds          = tf.data.TFRecordDataset(test_gt_files)
-    validation_we_ds        = tf.data.TFRecordDataset(validation_we_files)
-    validation_se_ds        = tf.data.TFRecordDataset(validation_se_files)
-    validation_gt_ds        = tf.data.TFRecordDataset(validation_gt_files)
+
+    content = ["disease","city"]
+    types   = ["train","test","validation"]
+    items = [7,2,1]
+    datasets = {}
+    for c in content:
+        datasets[c] = {}
+        for shards,t in zip(items,types):
+            files_we = []
+            files_se = []
+            files_gt = []
+            for i in range(shards):
+                files_we.append("{}_{}_we_{}.tfrecord".format(c,t,i))
+                files_se.append("{}_{}_se_{}.tfrecord".format(c,t,i))
+                files_gt.append("{}_{}_gt_{}.tfrecord".format(c,t,i))
+            dataset_we = tf.data.TFRecordDataset([dataset_dir+file_name for file_name in files_we]).map(lambda x: tf.io.parse_tensor(x, tf.float64))
+            dataset_se = tf.data.TFRecordDataset([dataset_dir+file_name for file_name in files_se]).map(lambda x: tf.io.parse_tensor(x, tf.float64))
+            dataset_gt = tf.data.TFRecordDataset([dataset_dir+file_name for file_name in files_gt]).map(lambda x: tf.io.parse_tensor(x, tf.float64))
+            dataset_zipped = tf.data.Dataset.zip((dataset_we,dataset_se,dataset_gt))    
+            datasets[c][t]=dataset_zipped
+    # exit()
 
     # setup training params
+    # Instantiate an optimizer.
+    batch_size  = 64
+    # get model
+    raw_inputs,outputs = model_generation.build_Att_BiLSTM(batch_size=batch_size)
+    model = keras.Model(raw_inputs, outputs)
+
+    # run training loop
+    print("Training this:")
+    model.summary()
+    keras.utils.plot_model(model,to_file="model_out.png",show_shapes=True,expand_nested=True)
+
     # Instantiate an optimizer.
     optimizer = keras.optimizers.SGD(learning_rate=1e-3)
     # Instantiate a loss function.
     loss_fn = keras.losses.SparseCategoricalCrossentropy(from_logits=True)
 
-    batch_size  = 64
 
-    # Prepare the training dataset.
-    train_dataset = tf.data.Dataset.zip((train_we_ds,train_se_ds,train_gt_ds))
-    train_dataset = train_dataset.shuffle(buffer_size=1024).batch(batch_size)
-
-    # Prepare the validation dataset.
-    val_dataset = tf.data.Dataset.zip((validation_we_ds,validation_se_ds,validation_gt_ds))
-    val_dataset = val_dataset.batch(batch_size)
-
-    # run training loop
-
-    epochs = 2
+    epochs = 1
     for epoch in range(epochs):
         print("\nStart of epoch %d" % (epoch,))
         # Iterate over the batches of the dataset.
-        for step, (we_batch,se_batch,gt_batch) in enumerate(train_dataset):
+        for step, (we_batch,se_batch,gt_batch) in enumerate(datasets["city"]["train"].batch(batch_size)):
             # Open a GradientTape to record the operations run
             # during the forward pass, which enables auto-differentiation.
             with tf.GradientTape() as tape:
