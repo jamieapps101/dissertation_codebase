@@ -71,10 +71,10 @@ class se_Att_BiLSTM(keras.layers.Layer):
         self.sat     = custom_SAT()
 
     def call(self, x):
-        x = self.bistm_0(x)
-        x = self.bistm_1(x)
-        x = self.sat(x)
-        return x
+        a = self.bistm_0(x)
+        b = self.bistm_1(a)
+        c = self.sat(b)
+        return c
 
 # Sentence encoding Comparison BiLSTM
 class se_comp_BiLSTM(keras.layers.Layer):
@@ -108,11 +108,19 @@ class RSA_layer(keras.layers.Layer):
         super(RSA_layer, self).__init__()
         self.window_size = window_size
         self.batch_size = batch_size
-        self.state = tf.zeros([batch_size,input_units,window_size],dtype=tf.float32)
+
+        state_init = tf.zeros_initializer()
+        self.state = tf.Variable(
+            initial_value=state_init(shape=(batch_size,input_units,window_size), dtype="float32"), 
+            trainable=False,
+        )
+
+        # self.state = tf.zeros([batch_size,input_units,window_size],dtype=tf.float32)
         temp = np.zeros((window_size,window_size-1))
         for i in range(window_size-1):
             temp[i+1,i]=1
         self.state_shift = tf.constant(temp,dtype=tf.float32)
+
 
         w_init = tf.random_normal_initializer()
         self.w = tf.Variable(
@@ -133,10 +141,12 @@ class RSA_layer(keras.layers.Layer):
         # self.state_shift 5,4
         shifted_state = tf.matmul(self.state,self.state_shift) # <batch_size>,None,256,4
         transposed_input_tensor = tf.reshape(input_tensor,[self.batch_size,self.input_units,1]) # <batch_size>,1,256,1
-        self.state = tf.concat([shifted_state,transposed_input_tensor],axis=-1) # <batch_size>,1,256,5
+        # cloned_transposed_input_tensor = tf.identity(transposed_input_tensor)
+        new_state = tf.concat([shifted_state,transposed_input_tensor],axis=-1,name="concat_layer_aaah") # <batch_size>,1,256,5
         
+
         # helps make the maths prettier
-        flip_state = tf.reshape(self.state,[self.batch_size,self.window_size,self.input_units]) # <batch_size>,1,5,256
+        flip_state = tf.reshape(new_state,[self.batch_size,self.window_size,self.input_units]) # <batch_size>,1,5,256
 
         h_i = tf.stack([flip_state for i in range(self.window_size)],axis=1)   # <batch_size>,5n,5,256
         h_j = tf.stack([flip_state for i in range(self.window_size)],axis=2) # <batch_size>,5,5n,256
@@ -152,7 +162,11 @@ class RSA_layer(keras.layers.Layer):
         # TODO, try replacing this with h_j
         c_i = tf.math.reduce_sum(tf.math.multiply(h_i,a_ij),axis=-2) # <batch_size>,1,5,256
         c_last = c_i[:,-1,:]
-        c_last_reshaped = tf.reshape(c_last,[self.batch_size,1,self.input_units]) 
+        c_last_reshaped = tf.reshape(c_last,[self.batch_size,self.input_units]) 
+        
+        tf.keras.backend.update(self.state, new_state)
+
+
         return c_last_reshaped
 
 
@@ -180,17 +194,15 @@ def build_Att_BiLSTM(
     # create a buffer to store previous sentence encodings from this section
     # add time distributed, as it removes the None element in the lstm output, 
     # allowing the tensorss to be processed individually
-    t_stacker = RSA_layer(window_size=5,input_units=lstm_units)
+    t_stacker = RSA_layer(window_size=5,input_units=lstm_units,batch_size=batch_size)
     sentence_encodings_stack = TimeDistributed(t_stacker)(se_comp_bilstm1_out)
     
+    out = tf.concat([se_comp_bilstm1_out,sentence_encodings_stack],axis=-1)
+    se_comp_bilstm2_out = se_comp_BiLSTM(lstm_units)(out)
 
-    # sentence_encodings_stack = TimeDistributed(d)(se_comp_bilstm1_out)
-    # out = tf.concat([se_comp_bilstm1_out,sentence_encodings_stack],axis=-1)
-    # se_comp_bilstm2_out = se_comp_BiLSTM(lstm_units)(out)
+    softmax_out = Softmax(name="boundry_out",axis=-2)(se_comp_bilstm2_out)
 
-    # softmax_out = Softmax(name="boundry_out")(se_comp_bilstm2_out)
-
-    return [word2vec_input,bert_input],sentence_encodings_stack
+    return [word2vec_input,bert_input],softmax_out
 
 
 if __name__=="__main__":

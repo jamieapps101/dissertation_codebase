@@ -72,7 +72,7 @@ if __name__=="__main__":
 
     # setup training params
     # Instantiate an optimizer.
-    batch_size  = 64
+    batch_size  = 4
     # get model
     raw_inputs,outputs = model_generation.build_Att_BiLSTM(batch_size=batch_size)
     model = keras.Model(raw_inputs, outputs)
