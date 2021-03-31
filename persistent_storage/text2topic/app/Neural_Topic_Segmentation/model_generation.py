@@ -108,7 +108,7 @@ class RSA_layer(keras.layers.Layer):
         super(RSA_layer, self).__init__()
         self.window_size = window_size
         self.batch_size = batch_size
-        self.state = tf.zeros([input_units,window_size],dtype=tf.float32)
+        self.state = tf.zeros([batch_size,input_units,window_size],dtype=tf.float32)
         temp = np.zeros((window_size,window_size-1))
         for i in range(window_size-1):
             temp[i+1,i]=1
@@ -132,28 +132,28 @@ class RSA_layer(keras.layers.Layer):
         # self.state 256,5
         # self.state_shift 5,4
         shifted_state = tf.matmul(self.state,self.state_shift) # <batch_size>,None,256,4
-        transposed_input_tensor = tf.transpose(input_tensor) # 256,1
-        # self.state = tf.concat([shifted_state,transposed_input_tensor],axis=-1) # 256,5
+        transposed_input_tensor = tf.reshape(input_tensor,[self.batch_size,self.input_units,1]) # <batch_size>,1,256,1
+        self.state = tf.concat([shifted_state,transposed_input_tensor],axis=-1) # <batch_size>,1,256,5
         
         # helps make the maths prettier
-        # flip_state = tf.transpose(self.state) # 5,256
+        flip_state = tf.reshape(self.state,[self.batch_size,self.window_size,self.input_units]) # <batch_size>,1,5,256
 
-        # h_i = tf.stack([flip_state for i in range(self.window_size)],axis=0) # 5n,5,256
-        # h_j = tf.stack([flip_state for i in range(self.window_size)],axis=1) # 5,5n,256
-        # h_i_dot_h_j = tf.math.reduce_sum(tf.multiply(h_i,h_j),axis=2,keepdims=True) # 5,5,1
+        h_i = tf.stack([flip_state for i in range(self.window_size)],axis=1)   # <batch_size>,5n,5,256
+        h_j = tf.stack([flip_state for i in range(self.window_size)],axis=2) # <batch_size>,5,5n,256
+        h_i_dot_h_j = tf.math.reduce_sum(tf.multiply(h_i,h_j),axis=3,keepdims=True) # <batch_size>,1,5,5,1
         
 
-        # se_ij = tf.concat([h_i,h_j,h_i_dot_h_j],axis=-1) # 5,5,513
+        se_ij = tf.concat([h_i,h_j,h_i_dot_h_j],axis=-1) # <batch_size>,1,5,5,513
         # add in dense layer for each h_ij. sam layer applied
         # to every i,j combination
-        # sim_ij = tf.matmul(se_ij,self.w)+self.b # 5,5,256
-        # a_ij = tf.nn.softmax(sim_ij,axis=1) # 5,5(norm on this axis),256
+        sim_ij = tf.matmul(se_ij,self.w)+self.b # <batch_size>,1,5,5,256
+        a_ij = tf.nn.softmax(sim_ij,axis=-2) # <batch_size>,1,5,5(norm on this axis),256
 
         # TODO, try replacing this with h_j
-        # c_i = tf.math.reduce_sum(tf.math.multiply(h_i,a_ij),axis=1) # 5,256
-        # c_last = c_i[-1,:]
-        # c_last_reshaped = tf.reshape(c_last,[1,self.input_units]) 
-        return input_tensor
+        c_i = tf.math.reduce_sum(tf.math.multiply(h_i,a_ij),axis=-2) # <batch_size>,1,5,256
+        c_last = c_i[:,-1,:]
+        c_last_reshaped = tf.reshape(c_last,[self.batch_size,1,self.input_units]) 
+        return c_last_reshaped
 
 
 
@@ -196,9 +196,17 @@ def build_Att_BiLSTM(
 if __name__=="__main__":
     print("Running from {}".format(__file__))
     
+    batch_size=64
 
-    raw_inputs,outputs = build_Att_BiLSTM(batch_size=64)
 
+    # lstm_units = 256
+    # word2vec_input = keras.Input(shape=(1,lstm_units), batch_size=batch_size,dtype="float32",name="WE")
+    # t_stacker = RSA_layer(window_size=5,input_units=lstm_units)
+    # sentence_encodings_stack = TimeDistributed(t_stacker)(word2vec_input)
+    # model = keras.Model(word2vec_input, sentence_encodings_stack)
+    
+
+    raw_inputs,outputs = build_Att_BiLSTM(batch_size=batch_size)
     model = keras.Model(raw_inputs, outputs)
     model.summary()
     # model.summary(line_length=160)
