@@ -1,3 +1,12 @@
 *.pbmm
 *.scorer
 *.wav
+*.png
+__pycache__
+persistent_storage/general
+persistent_storage/bert_as_service/app/BERT_model
+persistent_storage/bert_as_service/app/Neural_Topic_Segmentation/BERT_model
+persistent_storage/text2topic/app/Neural_Topic_Segmentation/google_news_word2vec
+persistent_storage/text2topic/app/data
+persistent_storage/word2vec/app/data/vectors.bin
+persistent_storage/word2vec
