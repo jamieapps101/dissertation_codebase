@@ -200,7 +200,10 @@ def build_Att_BiLSTM(
     out = tf.concat([se_comp_bilstm1_out,sentence_encodings_stack],axis=-1)
     se_comp_bilstm2_out = se_comp_BiLSTM(lstm_units)(out)
 
-    softmax_out = Softmax(name="boundry_out",axis=-2)(se_comp_bilstm2_out)
+    dense_0_out = Dense(lstm_units)(se_comp_bilstm2_out)
+    dense_1_out = Dense(1)(dense_0_out)
+
+    softmax_out = Softmax(name="boundry_out",axis=-2)(dense_1_out)
 
     return [word2vec_input,bert_input],softmax_out
 

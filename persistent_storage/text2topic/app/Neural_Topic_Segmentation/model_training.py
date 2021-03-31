@@ -83,9 +83,14 @@ if __name__=="__main__":
     keras.utils.plot_model(model,to_file="model_out.png",show_shapes=True,expand_nested=True)
 
     # Instantiate an optimizer.
-    optimizer = keras.optimizers.SGD(learning_rate=1e-3)
+    lr_schedule = keras.optimizers.schedules.InverseTimeDecay(
+        initial_learning_rate=1e-2,
+        decay_steps=1000,
+        decay_rate=0.9,
+        staircase=True)
+    optimizer = keras.optimizers.Adam(learning_rate=0.001)
     # Instantiate a loss function.
-    loss_fn = keras.losses.SparseCategoricalCrossentropy(from_logits=True)
+    loss_fn = keras.losses.BinaryCrossentropy(from_logits=True)
 
 
     epochs = 1
@@ -93,6 +98,8 @@ if __name__=="__main__":
         print("\nStart of epoch %d" % (epoch,))
         # Iterate over the batches of the dataset.
         for step, (we_batch,se_batch,gt_batch) in enumerate(datasets["city"]["train"].batch(batch_size)):
+            if step==0:
+                print("shape:{}".format(gt_batch.shape))
             # Open a GradientTape to record the operations run
             # during the forward pass, which enables auto-differentiation.
             with tf.GradientTape() as tape:
@@ -101,9 +108,12 @@ if __name__=="__main__":
                 # to its inputs are going to be recorded
                 # on the GradientTape.
                 model_out = model((we_batch,se_batch), training=True)  # Logits for this minibatch
-
+                # print("model out: {}".format(model_out))
                 # Compute the loss value for this minibatch.
                 loss_value = loss_fn(gt_batch, model_out)
+                # print("raw loss: {}".format(loss_value))
+                # print("gt_batch: {}".format(gt_batch))
+            # exit()
             # Use the gradient tape to automatically retrieve
             # the gradients of the trainable variables with respect to the loss.
             grads = tape.gradient(loss_value, model.trainable_weights)
@@ -112,8 +122,8 @@ if __name__=="__main__":
             # the value of the variables to minimize the loss.
             optimizer.apply_gradients(zip(grads, model.trainable_weights))
 
-            # Log every 200 batches.
-            if step % 200 == 0:
+            # Log every 10 batches.
+            if step % 10 == 0:
                 print(
                     "Training loss (for one batch) at step %d: %.4f"
                     % (step, float(loss_value))
