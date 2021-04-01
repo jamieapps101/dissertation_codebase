@@ -17,9 +17,9 @@ import matplotlib.pyplot as plt
 def get_bert_encoding(data,bc,max_sentences,bert_encoding_len):
     # post request to bert as a service
     # for each sentence
-    output = np.array([max_sentences,bert_encoding_len])
+    output = np.zeros([max_sentences,bert_encoding_len])
     
-    output = bc.encode(data)
+    output[:len(data)] = bc.encode(data)
     # return data response
     return output
 
@@ -28,14 +28,24 @@ def get_word2vec_encoding(word_data,max_sentence_len,max_sentences):
     # post request to word to vec container
     word_encoding_lenth = 300
     # using zero for padding
+    # if any([v<0 for v in [max_sentences,max_sentence_len,word_encoding_lenth]]):
+    #     if max_sentences < 0:
+    #         return None
+        # print(
+        #     {
+        #     "max_sentences":max_sentences,
+        #     "max_sentence_len":max_sentence_len,
+        #     "word_encoding_lenth":word_encoding_lenth,
+        #     }
+        # )
     out = np.zeros((max_sentences,max_sentence_len,word_encoding_lenth))
 
-    if len(word_data) > max_sentences:
+    # if len(word_data) > max_sentences:
         # print("too many sentences ({}/{})".format(len(word_data),max_sentences))
-        print("s",end="")
-        return None
+        # print("s",end="")
+        # return None
 
-    for sentence_index in range(len(word_data)):
+    for sentence_index in range(min(max_sentences,len(word_data))):
         sentence = word_data[sentence_index]
         # send 
         response = requests.get("http://127.0.0.1:3030/convert/",data=json.dumps({"words": sentence}))
@@ -342,17 +352,26 @@ if __name__=="__main__":
 
                 samples = len(data)
                 print("availiable samples: {}".format(samples))
+                samples -=2
                 print("beginning sample generation")
                 # loop and keep on looping until the required number of samples
                 total_records = record.shape[0]
                 last_update = -1
+                rand_indexes = np.array([[0,1]])
+                sample_index = 0
                 while total_records<samples_per_set[c_index][d_index]:
                     if total_records%10 == 0 and last_update!=total_records:
                         last_update=total_records
                         print("\ngenerated {}/{} records".format(total_records,samples_per_set[c_index][d_index]))
                     # gen some random indexes
                     while True:
-                        rand_indexes = np.random.randint(samples,size=(1,2))
+                        if sample_index < samples:
+                            rand_indexes += 1
+                            sample_index +=1
+                            if sample_index == samples:
+                                print("moving to stochastic sample generation")
+                        else:
+                            rand_indexes = np.random.randint(samples,size=(1,2))
                         if not np.any(record == rand_indexes):
                             break
                     # for each sample, get sentences encodings and word encodings
@@ -360,28 +379,35 @@ if __name__=="__main__":
                     bad_sample = False
                     remaining_sentences = max_sentences_per_sample
                     for index in [0,1]:
+                        # array of strings of all sentences in text
                         sentences = sent_tokenize(data[rand_indexes[0,index]]["text"])
 
-                        # first encode the sentences with bert
+                        # first encode the sentences with word2vec
                         word_regex = re.compile("[a-zA-Z]+")
+
                         word2vec_encodings = get_word2vec_encoding([[w for w in word_tokenize(s) if word_regex.search(w) is not None] for s in sentences if len(s)>0],max_sentence_len,remaining_sentences)
                         # exit()
                         if word2vec_encodings is None:
                             # print("bad sample, word2vec")
                             bad_sample = True
                             break
-                        bert_encodings = get_bert_encoding(sentences,bc,max_sentences_per_sample,bert_encoding_len)
+                        
+                        
+                        bert_encodings = get_bert_encoding(sentences[:word2vec_encodings.shape[0]],bc,max_sentences_per_sample,bert_encoding_len)
                         # add data into buffer
                         # if this is the first index
                         if index == 0: 
-                            data_we[samples_in_buffer,0:len(sentences),:,:] = word2vec_encodings[0:len(sentences),:,:]
-                            data_se[samples_in_buffer,0:len(sentences),:] = bert_encodings
-                            previous_sentences = len(sentences)
-                            remaining_sentences -= len(sentences)
+                            data_we[samples_in_buffer,0:word2vec_encodings.shape[0],:,:] = word2vec_encodings
+                            data_se[samples_in_buffer,0:word2vec_encodings.shape[0],:]   = bert_encodings[:word2vec_encodings.shape[0]]
+                            previous_sentences   = word2vec_encodings.shape[0]
+                            remaining_sentences -= word2vec_encodings.shape[0]
+                            if remaining_sentences == 0:
+                                bad_sample = True
+                                break
                         else:
                         # if this is the second index
-                            data_we[samples_in_buffer,previous_sentences:previous_sentences+len(sentences),:,:] = word2vec_encodings[0:len(sentences),:,:]
-                            data_se[samples_in_buffer,previous_sentences:previous_sentences+len(sentences),:] = bert_encodings
+                            data_we[samples_in_buffer,previous_sentences:previous_sentences+word2vec_encodings.shape[0],:,:] = word2vec_encodings
+                            data_se[samples_in_buffer,previous_sentences:previous_sentences+word2vec_encodings.shape[0],:]   = bert_encodings[:word2vec_encodings.shape[0]]
                             # set first sentence here to have a 1 label
                             if rand_indexes[0,0] != rand_indexes[0,1]:
                                 data_gt[samples_in_buffer,previous_sentences,0]=1
