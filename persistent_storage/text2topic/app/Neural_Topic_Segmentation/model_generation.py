@@ -214,15 +214,17 @@ if __name__=="__main__":
     batch_size=64
 
 
-    # lstm_units = 256
-    # word2vec_input = keras.Input(shape=(1,lstm_units), batch_size=batch_size,dtype="float32",name="WE")
+    lstm_units = 256
+    word2vec_input = keras.Input(shape=(None,lstm_units), batch_size=batch_size,dtype="float32",name="WE")
     # t_stacker = RSA_layer(window_size=5,input_units=lstm_units)
     # sentence_encodings_stack = TimeDistributed(t_stacker)(word2vec_input)
-    # model = keras.Model(word2vec_input, sentence_encodings_stack)
+    seab = se_Att_BiLSTM() 
+    out = seab(word2vec_input)
+    model = keras.Model(word2vec_input, out)
     
 
-    raw_inputs,outputs = build_Att_BiLSTM(batch_size=batch_size)
-    model = keras.Model(raw_inputs, outputs)
+    # raw_inputs,outputs = build_Att_BiLSTM(batch_size=batch_size)
+    # model = keras.Model(raw_inputs, outputs)
     model.summary()
     # model.summary(line_length=160)
     keras.utils.plot_model(model,to_file="model_out.png",show_shapes=True,expand_nested=True)

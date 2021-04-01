@@ -15,6 +15,8 @@ from tensorflow.keras.layers import LSTM,Embedding,Dense,Multiply,Bidirectional,
 from tensorflow.keras import activations
 from tensorflow import linalg
 from tensorflow.keras.utils import plot_model
+from datetime import datetime,timezone
+import time
 
 
 # import from other files
@@ -28,8 +30,10 @@ def get_and_zip_data(files,dataset_dir):
     return tf.data.Dataset.zip((train_we_ds,train_se_ds,train_gt_ds))
 
 if __name__=="__main__":
-    # get model
-
+    # stop mem errors
+    physical_devices = tf.config.experimental.list_physical_devices('GPU')
+    assert len(physical_devices) > 0, "Not enough GPU hardware devices available"
+    config = tf.config.experimental.set_memory_growth(physical_devices[0], True)
 
     # load data
     dataset_dir = "/app/data/processed/prev/"
@@ -72,7 +76,7 @@ if __name__=="__main__":
 
     # setup training params
     # Instantiate an optimizer.
-    batch_size  = 4
+    batch_size  = 16
     # get model
     raw_inputs,outputs = model_generation.build_Att_BiLSTM(batch_size=batch_size)
     model = keras.Model(raw_inputs, outputs)
@@ -85,50 +89,72 @@ if __name__=="__main__":
     # Instantiate an optimizer.
     lr_schedule = keras.optimizers.schedules.InverseTimeDecay(
         initial_learning_rate=1e-2,
-        decay_steps=1000,
-        decay_rate=0.9,
-        staircase=True)
-    optimizer = keras.optimizers.Adam(learning_rate=0.001)
+        decay_steps=100,
+        decay_rate=0.8, # sweeps from 0.01 to 0.0001 over the 10 epochs
+        staircase=False)
+    optimizer = keras.optimizers.Adam(learning_rate=lr_schedule)
     # Instantiate a loss function.
     loss_fn = keras.losses.BinaryCrossentropy(from_logits=True)
 
 
-    epochs = 1
-    for epoch in range(epochs):
-        print("\nStart of epoch %d" % (epoch,))
-        # Iterate over the batches of the dataset.
-        for step, (we_batch,se_batch,gt_batch) in enumerate(datasets["city"]["train"].batch(batch_size)):
-            if step==0:
-                print("shape:{}".format(gt_batch.shape))
-            # Open a GradientTape to record the operations run
-            # during the forward pass, which enables auto-differentiation.
-            with tf.GradientTape() as tape:
-                # Run the forward pass of the layer.
-                # The operations that the layer applies
-                # to its inputs are going to be recorded
-                # on the GradientTape.
-                model_out = model((we_batch,se_batch), training=True)  # Logits for this minibatch
-                # print("model out: {}".format(model_out))
-                # Compute the loss value for this minibatch.
-                loss_value = loss_fn(gt_batch, model_out)
-                # print("raw loss: {}".format(loss_value))
-                # print("gt_batch: {}".format(gt_batch))
-            # exit()
-            # Use the gradient tape to automatically retrieve
-            # the gradients of the trainable variables with respect to the loss.
-            grads = tape.gradient(loss_value, model.trainable_weights)
+    current_dir = "{:%m_%d_%H_%M}".format(datetime.now(timezone.utc))
+    model_save_path = "/app/data/models/"+current_dir
+    print("checkpoints stored in:\n\t{}".format(model_save_path))
+    os.makedirs(model_save_path,exist_ok=True)
 
-            # Run one step of gradient descent by updating
-            # the value of the variables to minimize the loss.
-            optimizer.apply_gradients(zip(grads, model.trainable_weights))
+    # Prepare the metrics.
+    train_acc_metric = keras.metrics.BinaryCrossentropy()
+    val_acc_metric   = keras.metrics.BinaryCrossentropy()
+
+    model.compile(run_eagerly=True)
+
+    # define tf functions
+    @tf.function
+    def train_step(we,se, gt):
+        with tf.GradientTape() as tape:
+            logits = model({"WE":we,"SE":se}, training=True)
+            loss_value = loss_fn(gt, logits)
+        grads = tape.gradient(loss_value, model.trainable_weights)
+        optimizer.apply_gradients(zip(grads, model.trainable_weights))
+        train_acc_metric.update_state(gt, logits)
+        return loss_value
+
+    @tf.function
+    def test_step(we,se, gt):
+        val_logits = model((we,se), training=False)
+        val_acc_metric.update_state(gt, val_logits)
+
+
+    epochs = 10
+    for epoch in range(epochs):
+        if epoch>0:
+            model.save_weights(os.path.join(model_save_path,"model_epoch_{}".format(epoch)))
+        print("\nStart of epoch %d" % (epoch,))
+        start_time = time.time()
+
+        # Iterate over the batches of the dataset.
+        for step, (we_batch,se_batch,gt_batch) in enumerate(datasets["city"]["train"].batch(batch_size,drop_remainder=True)):
+            loss_value = train_step(we_batch,se_batch,gt_batch)
 
             # Log every 10 batches.
-            if step % 10 == 0:
-                print(
-                    "Training loss (for one batch) at step %d: %.4f"
-                    % (step, float(loss_value))
-                )
+            if step % 20 == 0:
+                print("Training loss (for one batch) at step {}: {:.4}".format(step, float(loss_value)))
                 print("Seen so far: %s samples" % ((step + 1) * batch_size))
+
+        # Display metrics at the end of each epoch.
+        train_acc = train_acc_metric.result()
+        print("Training acc over epoch: {:.4}".format(float(train_acc),))
+        # Reset training metrics at the end of each epoch
+        train_acc_metric.reset_states()
+        # Run a validation loop at the end of each epoch.
+        for (we_batch,se_batch,gt_batch) in datasets["city"]["validation"].batch(batch_size,drop_remainder=True):
+            test_step(we_batch,se_batch,gt_batch)
+
+        val_acc = val_acc_metric.result()
+        val_acc_metric.reset_states()
+        print("Validation acc: %.4f" % (float(val_acc),))
+        print("Time taken: %.2fs" % (time.time() - start_time))
 
 
     # save model
+    model.save_weights(os.path.join(model_save_path,"model_final"))
