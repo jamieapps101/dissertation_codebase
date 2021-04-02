@@ -258,19 +258,19 @@ if __name__=="__main__":
         # connect to bert client
         # bc = BertClient(ip="jamie-laptop") # this defo wants fixing
         bc = BertClient(ip="127.0.0.1") # this defo wants fixing
-        max_sentence_len = 80
-        max_sentences_per_sample = 120 # this is for both segments
+        max_sentence_len = 90
+        max_sentences_per_sample = 100 # this is for both segments
         word2vec_encoding_len = 300
         bert_encoding_len = 1024
-        max_buffer_length = 500
+        max_buffer_length = 250
 
 
         word_exp = re.compile("[a-zA-Z\-]+")
         sentence_split_exp = re.compile("[.\\n]")
 
         samples_per_set = [
-            [1000,2000,7000], # disease
-            [1000,2000,7000], # city
+            [500,1000,3500], # disease
+            [500,1000,3500], # city
         ]
 
         print("beginning")
@@ -326,7 +326,7 @@ if __name__=="__main__":
                     # gen some random indexes
                     while True:
                         rand_indexes = np.random.randint(available_samples,size=(1,2))
-                        if not np.all(np.any(index_record == rand_indexes,axis=0)):
+                        if not np.any(np.all(index_record == rand_indexes,axis=1)):
                             break
    
                     # process first sample
