@@ -23,18 +23,63 @@ import time
 import model_generation
 
 
+# pulled in from other file
+max_sentence_len = 90
+max_sentences_per_sample = 100 # this is for both segments
+word2vec_encoding_len = 300
+bert_encoding_len = 1024
+max_buffer_length = 250
+# data_we_shape = [actual_buffer_length,max_sentences_per_sample,max_sentence_len,word2vec_encoding_len]
+# data_se_shape = [actual_buffer_length,max_sentences_per_sample,bert_encoding_len]
+# data_gt_shape = [actual_buffer_length,max_sentences_per_sample,1]
+data_we_shape = [max_sentences_per_sample,max_sentence_len,word2vec_encoding_len]
+data_se_shape = [max_sentences_per_sample,bert_encoding_len]
+data_gt_shape = [max_sentences_per_sample,1]
+
+# data processing left incorrect tensor ordering, so shapes have to be juggled
+correction_needed = False
+if correction_needed:
+    data_se_shape = [max_sentences_per_sample,max_sentence_len,word2vec_encoding_len]
+    data_we_shape = [max_sentences_per_sample,bert_encoding_len]
+
+
 def read_tfrecord(serialized_example):
   feature_description = {
-        'se': tf.io.FixedLenFeature((), tf.string),
-        'we': tf.io.FixedLenFeature((), tf.string),
-        'gt': tf.io.FixedLenFeature((), tf.string)
+        'se': tf.io.FixedLenFeature([], tf.string),
+        'we': tf.io.FixedLenFeature([], tf.string),
+        'gt': tf.io.FixedLenFeature([], tf.string)
   }
   example = tf.io.parse_single_example(serialized_example, feature_description)
   se = tf.io.parse_tensor(example['se'], out_type = tf.float64)
+  se = tf.reshape(se,data_se_shape)
+  
   we = tf.io.parse_tensor(example['we'], out_type = tf.float64)
+  we = tf.reshape(we,data_we_shape)
+  
   gt = tf.io.parse_tensor(example['gt'], out_type = tf.float64)
-  return se, we, gt
+  gt = tf.reshape(gt,data_gt_shape)
+  return (we,se,gt)
 
+
+def get_values(we,se,gt):
+    tensor = {}
+    tensor["WE"] = we
+    tensor["SE"] = se
+    return tensor
+
+def get_labels(we,se,gt):
+    tensor = {}
+    tensor["boundry_out"] = gt
+    return tensor
+
+def get_split(we,se,gt):
+    tensor = {}
+    tensor["WE"] = we
+    tensor["SE"] = se
+    tensor["boundry_out"] = gt
+    return tensor
+
+    
 
 if __name__=="__main__":
     # stop mem errors
@@ -43,34 +88,30 @@ if __name__=="__main__":
     config = tf.config.experimental.set_memory_growth(physical_devices[0], True)
 
     # load data
-    dataset_dir = "/app/data/processed/prev/"
-    files = os.listdir(dataset_dir)
-    train_files = [file_name for file_name in files if "train" in file_name]
-    test_files = [file_name for file_name in files if "test" in file_name]
-    validation_files = [file_name for file_name in files if "validation" in file_name]
+    dataset_dir = "/app/data/processed/data_8/"
+    batch_size  = 8
 
-
-    content = ["disease","city"]
+    print("arranging input pipeline")
+    content = ["city"]
+    # content = ["disease","city"]
     types   = ["train","test","validation"]
-    items = [7,2,1]
+    # items = [7,2,1]
+    items = [55,16,8]
     datasets = {}
     temp = None
     for c in content:
         datasets[c] = {}
         for shards,t in zip(items,types):
-            files = []
-            for i in range(shards):
-                files_we.append("{}_{}_{}.tfrecord".format(c,t,i))
-            dataset = tf.data.TFRecordDataset([dataset_dir+file_name for file_name in files_we]).map(read_tfrecord)
-
-            # dataset_zipped = tf.data.Dataset.zip((dataset_we,dataset_se,dataset_gt))    
-            # datasets[c][t]=dataset_zipped
-            datasets[c][t]=(dataset_we,dataset_se,dataset_gt)
-    exit()
+            datasets[c][t] = {}
+            files = ["{}_{}_{}.tfrecord".format(c,t,i) for i in range(shards)]
+            raw_dataset      = tf.data.TFRecordDataset([dataset_dir+file_name for file_name in files])
+            mapped_dataset   = raw_dataset.map(read_tfrecord)
+            batched_dataset  = mapped_dataset.batch(batch_size,drop_remainder=True)
+            buffered_dataset = batched_dataset.prefetch(buffer_size=1) # load in 1 batch ahead of time
+            datasets[c][t]   = buffered_dataset
 
     # setup training params
     # Instantiate an optimizer.
-    batch_size  = 16
     # get model
     raw_inputs,outputs = model_generation.build_Att_BiLSTM(batch_size=batch_size)
     model = keras.Model(raw_inputs, outputs)
@@ -80,36 +121,7 @@ if __name__=="__main__":
     model.summary()
     keras.utils.plot_model(model,to_file="model_out.png",show_shapes=True,expand_nested=True)
 
-
-
-
     if True:
-        # train using pre-made functions
-        model.compile(
-            optimizer=keras.optimizers.Adam(),
-            # Loss function to minimize
-            loss=keras.losses.BinaryCrossentropy(from_logits=True),
-            # List of metrics to monitor
-            metrics=[keras.metrics.SparseCategoricalAccuracy()]
-        )
-
-        # Train for 5 epochs with batch size of 32.
-        print("Fit model on training data")
-        history = model.fit(
-            {"WE":datasets["city"]["train"][0],"SE":datasets["city"]["train"][1]},
-            {"boundry_out":datasets["city"]["train"][2]},
-            batch_size=16,
-            epochs=2,
-            steps_per_epoch=20,
-            # We pass some validation for
-            # monitoring validation loss and metrics
-            # at the end of each epoch
-            validation_data={"WE":datasets["city"]["validation"][0],"SE":datasets["city"]["validation"][1],"boundry_out":datasets["city"]["validation"][2]},
-        )
-
-
-
-    elif False:
         # Train model with manual trianing loops
         # Instantiate an optimizer.
         lr_schedule = keras.optimizers.schedules.InverseTimeDecay(
@@ -121,18 +133,14 @@ if __name__=="__main__":
         # Instantiate a loss function.
         loss_fn = keras.losses.BinaryCrossentropy(from_logits=True)
 
-
         current_dir = "{:%m_%d_%H_%M}".format(datetime.now(timezone.utc))
         model_save_path = "/app/data/models/"+current_dir
         print("checkpoints stored in:\n\t{}".format(model_save_path))
         os.makedirs(model_save_path,exist_ok=True)
-
         # Prepare the metrics.
         train_acc_metric = keras.metrics.BinaryCrossentropy()
         val_acc_metric   = keras.metrics.BinaryCrossentropy()
-
         model.compile(run_eagerly=True)
-
         # define tf functions
         @tf.function
         def train_step(we,se, gt):
@@ -158,12 +166,12 @@ if __name__=="__main__":
             start_time = time.time()
 
             # Iterate over the batches of the dataset.
-            for step, (we_batch,se_batch,gt_batch) in enumerate(datasets["city"]["train"].batch(batch_size,drop_remainder=True)):
+            for step, (we_batch,se_batch,gt_batch) in enumerate(datasets["city"]["train"]):
                 loss_value = train_step(we_batch,se_batch,gt_batch)
 
                 # Log every 10 batches.
                 if step % 20 == 0:
-                    print("Training loss (for one batch) at step {}: {:.4}".format(step, float(loss_value)))
+                    print("Training loss (for one batch) at step {}: {:.6}".format(step, float(loss_value)))
                     print("Seen so far: %s samples" % ((step + 1) * batch_size))
 
             # Display metrics at the end of each epoch.

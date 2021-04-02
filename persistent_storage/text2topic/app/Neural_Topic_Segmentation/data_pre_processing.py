@@ -13,14 +13,11 @@ from nltk.tokenize import sent_tokenize,word_tokenize
 import matplotlib.pyplot as plt
 
 
+SAME_SAMPLES_AS_SOURCE = True
+
+
 # supply array of sentences
 def get_bert_encoding(data,bc,max_sentences,bert_encoding_len):
-    # post request to bert as a service
-    # for each sentence
-    # output = np.zeros([max_sentences,bert_encoding_len])
-    
-    # output = bc.encode(data)
-    # return data response
     return bc.encode(data)
 
 # supply array of array of words
@@ -119,6 +116,29 @@ def serialize_example(se, we, gt):
   example_proto = tf.train.Example(features=tf.train.Features(feature=feature))
   return example_proto.SerializeToString()
 
+def serialize_example2(se, we, gt):
+  feature = {
+      'se': _bytes_feature(tf.io.serialize_tensor(se)),
+      'we': _bytes_feature(tf.io.serialize_tensor(we)),
+      'gt': _bytes_feature(tf.io.serialize_tensor(gt)),
+  }  # Create a Features message using tf.train.Example.  
+  example_proto = tf.train.Example(features=tf.train.Features(feature=feature))
+  return example_proto.SerializeToString()
+
+def tf_serialize_example(we, se, gt):
+  tf_string = tf.py_function(
+    serialize_example2,
+    (se, we, gt),  # pass these args to the above function.
+    tf.string)      # the return type is `tf.string`.
+  return tf.reshape(tf_string, ()) # The result is a scalar
+
+def write_datasets_zipped2(data_we,data_se,data_gt,fn):
+    combined_data = tf.data.Dataset.from_tensor_slices((data_we,data_se,data_gt))
+    # wrap function in tf freindly wrapper
+    serialized_dataset = combined_data.map(tf_serialize_example)
+    path   = os.path.join(dataset_dir, fn)
+    writer =  tf.data.experimental.TFRecordWriter(path)
+    writer.write(serialized_dataset)
 
 def write_datasets_zipped(data_we,data_se,data_gt,fn):
     # zip datasets togeather
@@ -130,9 +150,6 @@ def write_datasets_zipped(data_we,data_se,data_gt,fn):
         )
     )
 
-    def write_map_fn(x1, x2, x3):
-        return tf.io.serialize_tensor(x1)+tf.io.serialize_tensor(x2)+tf.io.serialize_tensor(x3)
-        # return tf.io.serialize_tensor(inlet)
     # mapped_data = zipped.map(write_map_fn)
     # fn     = content[c_index]+"_"+datasets[d_index]+"_{}.tfrecord".format(buffers_written)
     path   = os.path.join(dataset_dir, fn)
@@ -179,6 +196,173 @@ if __name__=="__main__":
     for c in content:
         for d in datasets:
             filenames.append(raw_ds_fn[0]+c+raw_ds_fn[1]+d+raw_ds_fn[2])
+
+             
+    if mode=="extract":
+        print("extract mode")
+        # connect to bert client
+        # bc = BertClient(ip="jamie-laptop") # this defo wants fixing
+        bc = BertClient(ip="127.0.0.1") # this defo wants fixing
+        max_sentence_len = 90
+        max_sentences_per_sample = 100 # this is for both segments
+        word2vec_encoding_len = 300
+        bert_encoding_len = 1024
+        max_buffer_length = 250
+
+
+        word_exp = re.compile("[a-zA-Z\-]+")
+        sentence_split_exp = re.compile("[.\\n]")
+
+        samples_per_set = [
+            [100,200,700], # disease
+            [100,200,700], # city
+        ]
+
+        print("beginning")
+        for c_index in range(len(content)):
+            for d_index in range(len(datasets)):
+                print("c_index={}, d_index={}".format(c_index,d_index))
+                fn = raw_ds_fn[0]+content[c_index]+raw_ds_fn[1]+datasets[d_index]+raw_ds_fn[2]
+                # read in file
+                raw_data_path = os.path.join(data_dir,"raw/WikiSection-master",fn)
+                data = None
+                with open(raw_data_path,"r") as fp:
+                    print("successfully opened {}".format(fn))
+                    data = json.load(fp)
+                if data is None:
+                    print("error loading {}, skipping file".format(fn))
+                    continue
+                print("data loaded")
+
+                available_samples = len(data)
+                print("available_samples: {}".format(available_samples))
+                if SAME_SAMPLES_AS_SOURCE:
+                    samples_per_set[c_index][d_index]=available_samples
+                
+
+                actual_buffer_length = max_buffer_length 
+                if max_buffer_length>samples_per_set[c_index][d_index]:
+                    actual_buffer_length=samples_per_set[c_index][d_index]
+
+                print("using buffer length: {}".format(actual_buffer_length))
+
+                print("allocating buffer ram")
+                # create a data record so we know which samples we have combined before
+                index_record = np.array([[-1,-1]])
+                # [sample,sentence index,word index, embedding length]
+                data_we = np.zeros([actual_buffer_length,max_sentences_per_sample,max_sentence_len,word2vec_encoding_len])
+                # [sample,sentence index, embedding length]
+                data_se = np.zeros([actual_buffer_length,max_sentences_per_sample,bert_encoding_len]) 
+                # [sample,sentence index, 1], where 1 is a bool indicating topic change
+                data_gt = np.zeros([actual_buffer_length,max_sentences_per_sample,1])
+
+                samples_in_buffer = 0
+                buffers_written = 0
+
+                print("beginning sample generation")
+                # loop and keep on looping until the required number of samples
+                rand_indexes = np.array([[0,1]])
+                last_update = 0
+                while True:
+                    # give indication of progress
+                    if index_record.shape[0]%10 == 0 and last_update!=index_record.shape[0]:
+                        last_update=index_record.shape[0]
+                        print("\ngenerated {}/{} records".format(index_record.shape[0],samples_per_set[c_index][d_index]))
+
+                    
+                    # gen some random indexes
+                    while True:
+                        rand_indexes = np.random.randint(available_samples,size=(1,2))
+                        if not np.any(np.all(index_record == rand_indexes,axis=1)):
+                            break
+   
+                    # process first sample
+                    ## get sentences
+                    sentences = sent_tokenize(data[rand_indexes[0,0]]["text"])
+                    ## get word to vec encodings
+                    word2vec_encodings = get_word2vec_encoding(
+                        [[w for w in word_tokenize(s) if word_exp.search(w) is not None] for s in sentences if len(s)>0],
+                        max_sentence_len,max_sentences_per_sample)
+
+                    # skip this round if this sample has too many words in a sentence
+                    if word2vec_encodings is None:
+                        continue
+                    current_sentence_len = word2vec_encodings.shape[0]
+                    if max_sentences_per_sample<word2vec_encodings.shape[0]:
+                        continue
+
+                    # get bert encodings
+                    bert_encodings = get_bert_encoding(sentences,bc,max_sentences_per_sample,
+                        bert_encoding_len)
+
+                    # send to buffer
+                    data_we[samples_in_buffer,0:current_sentence_len,:,:] = word2vec_encodings
+                    data_se[samples_in_buffer,0:current_sentence_len,:]   = bert_encodings[:current_sentence_len]
+                    data_gt[samples_in_buffer,current_sentence_len-1] = 1
+                    # process second sample
+                    ## get sentences
+                    sentences = sent_tokenize(data[rand_indexes[0,1]]["text"])
+                    ## get word to vec encodings
+                    word2vec_encodings = get_word2vec_encoding(
+                        [[w for w in word_tokenize(s) if word_exp.search(w) is not None] for s in sentences if len(s)>0],
+                        max_sentence_len,max_sentences_per_sample)
+
+                    # skip this round if this sample has too many words in a sentence
+                    if word2vec_encodings is None:
+                        continue
+
+                    additional_sentences = word2vec_encodings.shape[0]
+                    if current_sentence_len+additional_sentences < max_sentences_per_sample:
+                        final_abs_sentence_index = current_sentence_len+additional_sentences
+                        final_rel_sentence_index = additional_sentences
+                    else:
+                        final_abs_sentence_index = max_sentences_per_sample
+                        final_rel_sentence_index = max_sentences_per_sample-current_sentence_len
+
+                    # get bert encodings
+                    bert_encodings = get_bert_encoding(sentences,bc,max_sentences_per_sample,
+                        bert_encoding_len)
+
+                    # send to buffer
+                    data_we[samples_in_buffer,current_sentence_len:final_abs_sentence_index,:,:] = word2vec_encodings[:final_rel_sentence_index]
+                    data_se[samples_in_buffer,current_sentence_len:final_abs_sentence_index,:]   = bert_encodings[:final_rel_sentence_index]
+
+
+                    # if we've gotten to here, the data must be ok, so add it to the record
+                    samples_in_buffer+=1
+                    if np.all(index_record==np.array([[-1,-1]])):
+                        index_record = rand_indexes
+                    else:   
+                        index_record = np.append(index_record,rand_indexes,axis=0)
+
+                    if samples_in_buffer==actual_buffer_length:
+                        print("writing data!")
+                        fn = content[c_index]+"_"+datasets[d_index]+"_{}.tfrecord".format(buffers_written)
+                        print("writing batch number {} to file:\n\t{}".format(buffers_written,fn))
+                        # slices required here as we don't want any zero padding being carried into the training data
+                        write_datasets_zipped2(data_we[:samples_in_buffer],data_se[:samples_in_buffer],data_gt[:samples_in_buffer],fn)
+                        # reset data valirables
+                        samples_in_buffer = 0
+                        buffers_written += 1
+                        # reset buffers just to be sure
+                        data_we = np.zeros([actual_buffer_length,max_sentences_per_sample,max_sentence_len,word2vec_encoding_len])
+                        data_se = np.zeros([actual_buffer_length,max_sentences_per_sample,bert_encoding_len]) 
+                        data_gt = np.zeros([actual_buffer_length,max_sentences_per_sample,1])
+                    if index_record.shape[0] >= samples_per_set[c_index][d_index]:
+                        print("exiting loop")
+                        break
+
+                if samples_in_buffer>0:
+                    print("Final batch of data")
+                    fn = content[c_index]+"_"+datasets[d_index]+"_{}.tfrecord".format(buffers_written)
+                    print("writing batch number {} to file:\n\t{}".format(buffers_written,fn))
+                    # slices required here as we don't want any zero padding being carried into the training data
+                    write_datasets_zipped2(data_we[:samples_in_buffer],data_se[:samples_in_buffer],data_gt[:samples_in_buffer],fn)
+                    # reset data valirables
+                    samples_in_buffer = 0
+                    buffers_written += 1
+
+
 
     if mode=="inspect":
         # for test,train,validation
@@ -251,162 +435,3 @@ if __name__=="__main__":
         ax[1].set_ylabel("Frequency")
 
         fig.savefig("distribution.png")
-
-             
-    if mode=="extract":
-        print("extract mode")
-        # connect to bert client
-        # bc = BertClient(ip="jamie-laptop") # this defo wants fixing
-        bc = BertClient(ip="127.0.0.1") # this defo wants fixing
-        max_sentence_len = 90
-        max_sentences_per_sample = 100 # this is for both segments
-        word2vec_encoding_len = 300
-        bert_encoding_len = 1024
-        max_buffer_length = 250
-
-
-        word_exp = re.compile("[a-zA-Z\-]+")
-        sentence_split_exp = re.compile("[.\\n]")
-
-        samples_per_set = [
-            [500,1000,3500], # disease
-            [500,1000,3500], # city
-        ]
-
-        print("beginning")
-        for c_index in range(len(content)):
-            for d_index in range(len(datasets)):
-                print("c_index={}, d_index={}".format(c_index,d_index))
-                fn = raw_ds_fn[0]+content[c_index]+raw_ds_fn[1]+datasets[d_index]+raw_ds_fn[2]
-
-                # read in file
-                raw_data_path = os.path.join(data_dir,"raw/WikiSection-master",fn)
-                data = None
-                with open(raw_data_path,"r") as fp:
-                    print("successfully opened {}".format(fn))
-                    data = json.load(fp)
-                if data is None:
-                    print("error loading {}, skipping file".format(fn))
-                    continue
-                print("data loaded")
-
-                actual_buffer_length = max_buffer_length 
-                if max_buffer_length>samples_per_set[c_index][d_index]:
-                    actual_buffer_length=samples_per_set[c_index][d_index]
-
-                print("using buffer length: {}".format(actual_buffer_length))
-
-                print("allocating buffer ram")
-                # create a data record so we know which samples we have combined before
-                index_record = np.array([[-1,-1]])
-                # [sample,sentence index,word index, embedding length]
-                data_we = np.zeros([actual_buffer_length,max_sentences_per_sample,max_sentence_len,word2vec_encoding_len])
-                # [sample,sentence index, embedding length]
-                data_se = np.zeros([actual_buffer_length,max_sentences_per_sample,bert_encoding_len]) 
-                # [sample,sentence index, 1], where 1 is a bool indicating topic change
-                data_gt = np.zeros([actual_buffer_length,max_sentences_per_sample,1])
-
-                samples_in_buffer = 0
-                buffers_written = 0
-
-                available_samples = len(data)
-                print("available_samples: {}".format(available_samples))
-
-                print("beginning sample generation")
-                # loop and keep on looping until the required number of samples
-                rand_indexes = np.array([[0,1]])
-                last_update = 0
-                while True:
-                    # give indication of progress
-                    if index_record.shape[0]%10 == 0 and last_update!=index_record.shape[0]:
-                        last_update=index_record.shape[0]
-                        print("\ngenerated {}/{} records".format(index_record.shape[0],samples_per_set[c_index][d_index]))
-
-                    
-                    # gen some random indexes
-                    while True:
-                        rand_indexes = np.random.randint(available_samples,size=(1,2))
-                        if not np.any(np.all(index_record == rand_indexes,axis=1)):
-                            break
-   
-                    # process first sample
-                    ## get sentences
-                    sentences = sent_tokenize(data[rand_indexes[0,0]]["text"])
-                    ## get word to vec encodings
-                    word2vec_encodings = get_word2vec_encoding(
-                        [[w for w in word_tokenize(s) if word_exp.search(w) is not None] for s in sentences if len(s)>0],
-                        max_sentence_len,max_sentences_per_sample)
-
-                    # skip this round if this sample has too many words in a sentence
-                    if word2vec_encodings is None:
-                        continue
-                    current_sentence_len = word2vec_encodings.shape[0]
-                    if max_sentences_per_sample<word2vec_encodings.shape[0]:
-                        continue
-
-                    # get bert encodings
-                    bert_encodings = get_bert_encoding(sentences,bc,max_sentences_per_sample,
-                        bert_encoding_len)
-
-                    # send to buffer
-                    data_we[samples_in_buffer,0:current_sentence_len,:,:] = word2vec_encodings
-                    data_se[samples_in_buffer,0:current_sentence_len,:]   = bert_encodings[:current_sentence_len]
-
-                    # process second sample
-                    ## get sentences
-                    sentences = sent_tokenize(data[rand_indexes[0,1]]["text"])
-                    ## get word to vec encodings
-                    word2vec_encodings = get_word2vec_encoding(
-                        [[w for w in word_tokenize(s) if word_exp.search(w) is not None] for s in sentences if len(s)>0],
-                        max_sentence_len,max_sentences_per_sample)
-
-                    # skip this round if this sample has too many words in a sentence
-                    if word2vec_encodings is None:
-                        continue
-
-                    additional_sentences = word2vec_encodings.shape[0]
-                    if current_sentence_len+additional_sentences < max_sentences_per_sample:
-                        final_abs_sentence_index = current_sentence_len+additional_sentences
-                        final_rel_sentence_index = additional_sentences
-                    else:
-                        final_abs_sentence_index = max_sentences_per_sample
-                        final_rel_sentence_index = max_sentences_per_sample-current_sentence_len
-
-                    # get bert encodings
-                    bert_encodings = get_bert_encoding(sentences,bc,max_sentences_per_sample,
-                        bert_encoding_len)
-
-                    # send to buffer
-                    data_we[samples_in_buffer,current_sentence_len:final_abs_sentence_index,:,:] = word2vec_encodings[:final_rel_sentence_index]
-                    data_se[samples_in_buffer,current_sentence_len:final_abs_sentence_index,:]   = bert_encodings[:final_rel_sentence_index]
-
-
-                    # if we've gotten to here, the data must be ok, so add it to the record
-                    samples_in_buffer+=1
-                    if np.all(index_record==np.array([[-1,-1]])):
-                        index_record = rand_indexes
-                    else:   
-                        index_record = np.append(index_record,rand_indexes,axis=0)
-
-                    if samples_in_buffer==actual_buffer_length:
-                        print("writing data!")
-                        fn = content[c_index]+"_"+datasets[d_index]+"_{}.tfrecord".format(buffers_written)
-                        print("writing batch number {} to file:\n\t{}".format(buffers_written,fn))
-                        # slices required here as we don't want any zero padding being carried into the training data
-                        write_datasets_zipped(data_we[:samples_in_buffer],data_se[:samples_in_buffer],data_gt[:samples_in_buffer],fn)
-                        # reset data valirables
-                        samples_in_buffer = 0
-                        buffers_written += 1
-                    if index_record.shape[0] >= samples_per_set[c_index][d_index]:
-                        print("exiting loop")
-                        break
-
-                if samples_in_buffer>0:
-                    print("Final batch of data")
-                    fn = content[c_index]+"_"+datasets[d_index]+"_{}.tfrecord".format(buffers_written)
-                    print("writing batch number {} to file:\n\t{}".format(buffers_written,fn))
-                    # slices required here as we don't want any zero padding being carried into the training data
-                    write_datasets_zipped(data_we[:samples_in_buffer],data_se[:samples_in_buffer],data_gt[:samples_in_buffer],fn)
-                    # reset data valirables
-                    samples_in_buffer = 0
-                    buffers_written += 1
