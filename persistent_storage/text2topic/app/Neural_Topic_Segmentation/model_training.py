@@ -10,6 +10,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import tensorflow as tf
 tf.executing_eagerly()
+import pandas as pd
 from tensorflow import keras
 from tensorflow.keras.layers import LSTM,Embedding,Dense,Multiply,Bidirectional,Softmax,Dot,Attention,MaxPooling1D,Reshape,Add,Concatenate,ConvLSTM2D,Subtract,RepeatVector,TimeDistributed
 from tensorflow.keras import activations
@@ -82,10 +83,14 @@ def get_split(we,se,gt):
     
 
 if __name__=="__main__":
-    # stop mem errors
-    physical_devices = tf.config.experimental.list_physical_devices('GPU')
-    assert len(physical_devices) > 0, "Not enough GPU hardware devices available"
-    config = tf.config.experimental.set_memory_growth(physical_devices[0], True)
+    USE_GPU = True
+    if USE_GPU:
+        # stop mem errors
+        physical_devices = tf.config.experimental.list_physical_devices('GPU')
+        assert len(physical_devices) > 0, "Not enough GPU hardware devices available"
+        config = tf.config.experimental.set_memory_growth(physical_devices[0], True)
+    else:
+        tf.config.experimental.set_visible_devices([], 'GPU')
 
     # load data
     dataset_dir = "/app/data/processed/data_8/"
@@ -138,8 +143,10 @@ if __name__=="__main__":
         print("checkpoints stored in:\n\t{}".format(model_save_path))
         os.makedirs(model_save_path,exist_ok=True)
         # Prepare the metrics.
-        train_acc_metric = keras.metrics.BinaryCrossentropy()
-        val_acc_metric   = keras.metrics.BinaryCrossentropy()
+        train_acc_metric    = keras.metrics.BinaryCrossentropy()
+        train_loss_metric   = keras.metrics.BinaryCrossentropy()
+        val_acc_metric      = keras.metrics.BinaryCrossentropy()
+        val_los_metric      = keras.metrics.BinaryCrossentropy()
         model.compile(run_eagerly=True)
         # define tf functions
         @tf.function
@@ -157,11 +164,16 @@ if __name__=="__main__":
             val_logits = model((we,se), training=False)
             val_acc_metric.update_state(gt, val_logits)
 
+        history = pd.DataFrame({
+            'validation_acc': np.array([]),
+            'train_loss': np.array([]),
+            'train_acc': np.array([]),
+            'epoch': np.array([]),
+        })
+
 
         epochs = 10
         for epoch in range(epochs):
-            if epoch>0:
-                model.save_weights(os.path.join(model_save_path,"model_epoch_{}".format(epoch)))
             print("\nStart of epoch %d" % (epoch,))
             start_time = time.time()
 
@@ -173,7 +185,7 @@ if __name__=="__main__":
                 if step % 20 == 0:
                     print("Training loss (for one batch) at step {}: {:.6}".format(step, float(loss_value)))
                     print("Seen so far: %s samples" % ((step + 1) * batch_size))
-
+            model.save_weights(os.path.join(model_save_path,"model_epoch_{}".format(epoch)))
             # Display metrics at the end of each epoch.
             train_acc = train_acc_metric.result()
             print("Training acc over epoch: {:.4}".format(float(train_acc),))
@@ -187,7 +199,15 @@ if __name__=="__main__":
             val_acc_metric.reset_states()
             print("Validation acc: %.4f" % (float(val_acc),))
             print("Time taken: %.2fs" % (time.time() - start_time))
+            history = history.append({
+                'validation_acc': val_acc,
+                'train_loss': loss_value,
+                'train_acc': train_acc,
+                'epoch': epoch,
+            }, ignore_index=True)
 
 
         # save model
         model.save_weights(os.path.join(model_save_path,"model_final"))
+        # save history
+        history.to_csv(os.path.join(model_save_path,"model_hist.csv"))
