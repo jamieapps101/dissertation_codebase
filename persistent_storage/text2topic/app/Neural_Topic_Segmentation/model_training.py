@@ -101,7 +101,7 @@ if __name__=="__main__":
 
     # load data
     dataset_dir = "/app/data/processed/data_8/"
-    batch_size  = 8
+    batch_size  = 16
 
     print("arranging input pipeline")
     content = ["city"]
