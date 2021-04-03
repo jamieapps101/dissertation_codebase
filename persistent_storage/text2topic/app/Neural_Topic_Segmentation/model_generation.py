@@ -175,7 +175,36 @@ class RSA_layer(keras.layers.Layer):
 
         return c_last_reshaped
 
+# Sentence encoding Comparison BiLSTM
+class custom_dense(keras.layers.Layer):
+    def __init__(self, output_neurons=256,activation=tf.keras.activations.relu, **kwargs):
+        super(custom_dense, self).__init__( **kwargs)
+        self.output_neurons = output_neurons
+        self.activation = activation
+        
+    def build(self, input_shape):
+        if int(input_shape[-1])==1:
+            input_dim = input_shape[-2]
+        else:
+            input_dim = input_shape[-1]
+        
+        w_init = tf.random_normal_initializer()
+        self.w = tf.Variable(
+            initial_value=w_init(shape=(input_dim, self.output_neurons), dtype="float32"),
+            trainable=True,
+        )
+        b_init = tf.zeros_initializer()
+        self.b = tf.Variable(
+            initial_value=b_init(shape=(self.output_neurons), dtype="float32"), 
+            trainable=True,
+        )
 
+    def call(self, input_t):
+        shape = list(input_t.shape)
+        if int(shape[-1])==1: # if there is an extra 1 dim
+            return self.activation(tf.matmul(tf.reshape(input_t,shape[:-1]),self.w)+self.b)
+        else: # otherwise if everything is normal
+            return self.activation(tf.matmul(input_t,self.w)+self.b)
 
 # build sentence level BiLSTM layers
 def build_Att_BiLSTM(
@@ -207,17 +236,17 @@ def build_Att_BiLSTM(
     
     out = tf.concat([se_comp_bilstm1_out,sentence_encodings_stack],axis=-1)
     se_comp_bilstm2_out = se_comp_BiLSTM(lstm_units)(out)
-    reshaper = Reshape([256,1])
-    se_comp_bilstm2_out_reshaped = TimeDistributed(reshaper)(se_comp_bilstm2_out)
+    # reshaper = Reshape([256,1])
+    # se_comp_bilstm2_out_reshaped = TimeDistributed(reshaper)(se_comp_bilstm2_out)
 
 
-    # dense_0_out = Dense(lstm_units,name="dense_0")(se_comp_bilstm2_out)
-    # reshape_0_out = Reshape([None, 256,1])(dense_0_out)
-    # dense_1_out = Dense(1,name="dense_1")(dense_0_out)
+    dense_0_out = custom_dense(output_neurons=lstm_units,name="dense_0")(se_comp_bilstm2_out)
+    # reshape_0_o/ut = Reshape([None, 256,1])(dense_0_out)
+    dense_1_out = custom_dense(output_neurons=1,name="dense_1")(dense_0_out)
 
-    # softmax_out = Softmax(name="boundry_out",axis=-2)(dense_1_out)
+    softmax_out = Softmax(name="boundry_out",axis=-2)(dense_1_out)
 
-    return [word2vec_input,bert_input],se_comp_bilstm2_out_reshaped
+    return [word2vec_input,bert_input],softmax_out
 
 
 if __name__=="__main__":
