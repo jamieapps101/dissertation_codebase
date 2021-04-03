@@ -183,8 +183,8 @@ def build_Att_BiLSTM(
     # 2 - None - no of sentence
     # 3 - None - no of words
     # 4 - 300 - word encoding size
-    word2vec_input = keras.Input(shape=(None,None,embedding_length), batch_size=batch_size,dtype="float32",name="WE")
-    bert_input = keras.Input(shape=(None,bert_embedding_length),batch_size=batch_size, dtype="float32", name="SE")
+    word2vec_input = keras.Input(shape=(None,None,embedding_length), batch_size=batch_size,dtype="float32",name="WE", mask_zero=True)
+    bert_input = keras.Input(shape=(None,bert_embedding_length),batch_size=batch_size, dtype="float32", name="SE", mask_zero=True)
     se_out = TimeDistributed(se_Att_BiLSTM())(word2vec_input)
     se_bert_out = Concatenate()([bert_input,se_out])
 
