@@ -1,5 +1,6 @@
 # import libs
 import os
+os.environ['MPLCONFIGDIR'] = '/app/matplotlib_temp'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
 # 0 = all messages are logged (default behavior)
 # 1 = INFO messages are not printed
@@ -91,6 +92,12 @@ if __name__=="__main__":
         config = tf.config.experimental.set_memory_growth(physical_devices[0], True)
     else:
         tf.config.experimental.set_visible_devices([], 'GPU')
+
+    # turn off meta optimiser
+    tf.config.optimizer.set_experimental_options(
+        {"disable_meta_optimizer":True}
+    )
+
 
     # load data
     dataset_dir = "/app/data/processed/data_8/"

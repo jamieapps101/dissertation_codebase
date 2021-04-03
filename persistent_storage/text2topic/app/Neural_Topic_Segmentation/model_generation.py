@@ -1,6 +1,7 @@
 # This script puts togeather a model based on "Improving Context Modeling in Neural Topic Segmentation"
 
 import os
+os.environ['MPLCONFIGDIR'] = '/app/matplotlib_temp'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
 # 0 = all messages are logged (default behavior)
 # 1 = INFO messages are not printed
@@ -29,22 +30,24 @@ class se_BiLSTM(keras.layers.Layer):
         super(se_BiLSTM, self).__init__()
         self.x_forward = LSTM(
             units = 256,
-            # recurrent_activation=activations.tanh, # check this
+            activation='tanh',
+            recurrent_activation='sigmoid', # check this
             return_sequences=return_sequences,
             go_backwards=False,
             stateful=True,
         )
         self.x_backward = LSTM(
             units = 256,
-            # recurrent_activation=activations.tanh, # check this
+            activation='tanh',
+            recurrent_activation='sigmoid', # check this
             return_sequences=return_sequences,
             go_backwards=True,
             stateful=True,
         )
         self.add=Add()
 
-    def call(self, input_t):
-        return self.add([self.x_forward(input_t),self.x_backward(input_t)])
+    def call(self, input_t,mask=None):
+        return self.add([self.x_forward(input_t,mask=mask),self.x_backward(input_t,mask=mask)])
 
 
 class custom_SAT(keras.layers.Layer):
@@ -55,26 +58,55 @@ class custom_SAT(keras.layers.Layer):
         initializer = tf.keras.initializers.RandomUniform(minval=0., maxval=1.)
         self.u_w = tf.Variable(initial_value=initializer((output_vec_len,output_vec_len,)),
                                trainable=True)
-        self.softmax   = Softmax()
 
     def call(self, x):
         x = self.dense0(x)
-        x = self.softmax(linalg.matmul(x,self.u_w))
+        x = tf.math.softmax(linalg.matmul(x,self.u_w), axis=-2)
         x = tf.math.reduce_sum(x, axis=-2, keepdims=False, name=None)
         return x
 
 class se_Att_BiLSTM(keras.layers.Layer):
-    def __init__(self, output_vec_len = 300):
-        super(se_Att_BiLSTM, self).__init__()
+    def __init__(self, output_vec_len = 300,**kwargs):
+        super(se_Att_BiLSTM, self).__init__(**kwargs)
         self.masking = Masking(mask_value=0.0)
-        self.bistm_0 = se_BiLSTM(return_sequences=True)
-        self.bistm_1 = se_BiLSTM(return_sequences=True)
+        self.dense_0 = Dense(units=300)
+        self.lstm_0 = LSTM(
+            units = output_vec_len,
+            activation='tanh',
+            recurrent_activation='sigmoid', # check this
+            return_sequences=True,
+            stateful=True,
+            name="lstm_0",
+        )
+        self.bilstm_0 = tf.keras.layers.Bidirectional(self.lstm_0, merge_mode='sum')
+
+        self.lstm_1 = LSTM(
+            units = output_vec_len,
+            activation='tanh',
+            recurrent_activation='sigmoid', # check this
+            return_sequences=True,
+            stateful=True,
+            name="lstm_1",
+        )
+        self.bilstm_1 = tf.keras.layers.Bidirectional(self.lstm_1, merge_mode='sum')
+
+        
+        
+        # self.bistm_1 = se_BiLSTM(return_sequences=True)
         self.sat     = custom_SAT()
 
     def call(self, x):
         z = self.masking(x)
-        a = self.bistm_0(z)
-        b = self.bistm_1(a)
+        y = self.dense_0(z)
+        # mask = self.masking.compute_mask(x)
+        a = self.bilstm_0(y)
+        b = self.bilstm_0(a)
+        # a = self.add([
+        #     self.x_forward_0(z,mask=mask),
+        #     self.x_backward_0(z,mask=mask)
+        #     ])
+        # b = self.bistm_1(a)
+        # b = self.add([self.x_forward_1(a),self.x_backward_1(a)])
         c = self.sat(b)
         return c
 
@@ -222,7 +254,7 @@ def build_Att_BiLSTM(
     # word2vec_input = Masking(mask_value=0.0)(word2vec_input)
     bert_input = keras.Input(shape=(None,bert_embedding_length),batch_size=batch_size, dtype="float32", name="SE")
     # bert_input = Masking(mask_value=0.0)(bert_input)
-    se_out = TimeDistributed(se_Att_BiLSTM())(word2vec_input)
+    se_out = TimeDistributed(se_Att_BiLSTM(name="self_att_bilstm_hello"))(word2vec_input)
     se_bert_out = Concatenate()([bert_input,se_out])
 
     lstm_units = 256
