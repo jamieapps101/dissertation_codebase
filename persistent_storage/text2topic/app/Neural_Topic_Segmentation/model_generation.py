@@ -66,9 +66,11 @@ class custom_SAT(keras.layers.Layer):
         return x
 
 class se_Att_BiLSTM(keras.layers.Layer):
-    def __init__(self, output_vec_len = 300,**kwargs):
+    def __init__(self, output_vec_len = 300,masking_enabled=True,**kwargs):
         super(se_Att_BiLSTM, self).__init__(**kwargs)
-        self.masking = Masking(mask_value=0.0)
+        self.masking_enabled = masking_enabled
+        if masking_enabled:
+            self.masking = Masking(mask_value=0.0)
         self.dense_0 = Dense(units=300)
         self.lstm_0 = LSTM(
             units = output_vec_len,
@@ -96,8 +98,9 @@ class se_Att_BiLSTM(keras.layers.Layer):
         self.sat     = custom_SAT()
 
     def call(self, x):
-        z = self.masking(x)
-        y = self.dense_0(z)
+        if self.masking_enabled:
+            x = self.masking(x)
+        y = self.dense_0(x)
         # mask = self.masking.compute_mask(x)
         a = self.bilstm_0(y)
         b = self.bilstm_0(a)
@@ -112,9 +115,11 @@ class se_Att_BiLSTM(keras.layers.Layer):
 
 # Sentence encoding Comparison BiLSTM
 class se_comp_BiLSTM(keras.layers.Layer):
-    def __init__(self, lstm_units = 256):
+    def __init__(self, lstm_units = 256,masking_enabled=True):
         super(se_comp_BiLSTM, self).__init__()
-        self.masking = Masking(mask_value=0.0)
+        self.masking_enabled = masking_enabled
+        if masking_enabled:
+            self.masking = Masking(mask_value=0.0)
         self.x_forward = LSTM(
             units = lstm_units,
             # recurrent_activation=activations.tanh, # check this
@@ -132,8 +137,11 @@ class se_comp_BiLSTM(keras.layers.Layer):
         self.add=Add()
 
     def call(self, input_t):
-        x = self.masking(input_t)
-        return self.add([self.x_forward(x),self.x_backward(x)])
+        if self.masking_enabled:
+            x = self.masking(input_t)
+            return self.add([self.x_forward(x),self.x_backward(x)])
+        else:
+            return self.add([self.x_forward(input_t),self.x_backward(input_t)])
 
 # This item collects previous inputs, and performes the selective self attention
 # while returning outputs of the same shape for lstm after wards
@@ -197,7 +205,7 @@ class RSA_layer(keras.layers.Layer):
 
 
         # h_i - 1700: 0.692493
-        # TODO, try replacing this with h_j
+        # TODO, try replacing this with h_j - no
         c_i = tf.math.reduce_sum(tf.math.multiply(h_i,a_ij),axis=-2) # <batch_size>,1,5,256
         c_last = c_i[:,-1,:]
         c_last_reshaped = tf.reshape(c_last,[self.batch_size,self.input_units]) 
@@ -243,7 +251,9 @@ def build_Att_BiLSTM(
     embedding_length = 300,
     bert_embedding_length=1024, 
     batch_size=1,
+    masking_enabled = True,
     self_attention_enabled=True):
+
 
     # input to this should be [None,None,None,300]
     # 1 - None - batch size
@@ -251,30 +261,24 @@ def build_Att_BiLSTM(
     # 3 - None - no of words
     # 4 - 300 - word encoding size
     word2vec_input = keras.Input(shape=(None,None,embedding_length), batch_size=batch_size,dtype="float32",name="WE")
-    # word2vec_input = Masking(mask_value=0.0)(word2vec_input)
     bert_input = keras.Input(shape=(None,bert_embedding_length),batch_size=batch_size, dtype="float32", name="SE")
-    # bert_input = Masking(mask_value=0.0)(bert_input)
-    se_out = TimeDistributed(se_Att_BiLSTM(name="self_att_bilstm_hello"))(word2vec_input)
+    se_out = TimeDistributed(se_Att_BiLSTM(name="self_att_bilstm_hello",masking_enabled=masking_enabled))(word2vec_input)
     se_bert_out = Concatenate()([bert_input,se_out])
 
     lstm_units = 256
-    se_comp_bilstm1_out = se_comp_BiLSTM(lstm_units)(se_bert_out)
+    se_comp_bilstm1_out = se_comp_BiLSTM(lstm_units,masking_enabled=masking_enabled)(se_bert_out)
 
     # create a buffer to store previous sentence encodings from this section
     # add time distributed, as it removes the None element in the lstm output, 
     # allowing the tensorss to be processed individually
-    t_stacker = RSA_layer(window_size=5,input_units=lstm_units,batch_size=batch_size)
-    sentence_encodings_stack = TimeDistributed(t_stacker)(se_comp_bilstm1_out)
+    # t_stacker = RSA_layer(window_size=5,input_units=lstm_units,batch_size=batch_size)
+    # sentence_encodings_stack = TimeDistributed(t_stacker)(se_comp_bilstm1_out)
     
-    out = tf.concat([se_comp_bilstm1_out,sentence_encodings_stack],axis=-1)
-    se_comp_bilstm2_out = se_comp_BiLSTM(lstm_units)(out)
-    # reshaper = Reshape([256,1])
-    # se_comp_bilstm2_out_reshaped = TimeDistributed(reshaper)(se_comp_bilstm2_out)
+    # out = tf.concat([se_comp_bilstm1_out,sentence_encodings_stack],axis=-1)
+    # se_comp_bilstm2_out = se_comp_BiLSTM(lstm_units)(out)
 
-
-    dense_0_out = custom_dense(output_neurons=lstm_units,name="dense_0")(se_comp_bilstm2_out)
-    # reshape_0_o/ut = Reshape([None, 256,1])(dense_0_out)
-    dense_1_out = custom_dense(output_neurons=1,name="dense_1")(dense_0_out)
+    # dense_0_out = custom_dense(output_neurons=lstm_units,name="dense_0")(se_comp_bilstm2_out)
+    dense_1_out = custom_dense(output_neurons=1,name="dense_1")(se_comp_bilstm1_out)
 
     softmax_out = Softmax(name="boundry_out",axis=-2)(dense_1_out)
 
