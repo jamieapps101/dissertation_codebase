@@ -59,11 +59,12 @@ class custom_SAT(keras.layers.Layer):
         self.u_w = tf.Variable(initial_value=initializer((output_vec_len,output_vec_len,)),
                                trainable=True)
 
-    def call(self, x):
-        x = self.dense0(x)
-        x = tf.math.softmax(linalg.matmul(x,self.u_w), axis=-2)
-        x = tf.math.reduce_sum(x, axis=-2, keepdims=False, name=None)
-        return x
+    def call(self, h_it): 
+        # x -> <batch_size>,None,None,300
+        u_it = self.dense0(h_it) # <batch_size>,None,None,300
+        a_it = tf.math.softmax(linalg.matmul(u_it,self.u_w), axis=-2) # <batch_size>,None,None,300
+        s_t = tf.math.reduce_sum(tf.multiply(a_it,h_it), axis=-2, keepdims=False, name=None) # <batch_size>,None,300
+        return s_t
 
 class se_Att_BiLSTM(keras.layers.Layer):
     def __init__(self, output_vec_len = 300,masking_enabled=True,**kwargs):
@@ -91,25 +92,14 @@ class se_Att_BiLSTM(keras.layers.Layer):
             name="lstm_1",
         )
         self.bilstm_1 = tf.keras.layers.Bidirectional(self.lstm_1, merge_mode='sum')
-
-        
-        
-        # self.bistm_1 = se_BiLSTM(return_sequences=True)
         self.sat     = custom_SAT()
 
     def call(self, x):
         if self.masking_enabled:
             x = self.masking(x)
         y = self.dense_0(x)
-        # mask = self.masking.compute_mask(x)
         a = self.bilstm_0(y)
         b = self.bilstm_0(a)
-        # a = self.add([
-        #     self.x_forward_0(z,mask=mask),
-        #     self.x_backward_0(z,mask=mask)
-        #     ])
-        # b = self.bistm_1(a)
-        # b = self.add([self.x_forward_1(a),self.x_backward_1(a)])
         c = self.sat(b)
         return c
 
@@ -263,10 +253,10 @@ def build_Att_BiLSTM(
     word2vec_input = keras.Input(shape=(None,None,embedding_length), batch_size=batch_size,dtype="float32",name="WE")
     bert_input = keras.Input(shape=(None,bert_embedding_length),batch_size=batch_size, dtype="float32", name="SE")
     se_out = TimeDistributed(se_Att_BiLSTM(name="self_att_bilstm_hello",masking_enabled=masking_enabled))(word2vec_input)
-    se_bert_out = Concatenate()([bert_input,se_out])
+    # se_bert_out = Concatenate()([bert_input,se_out])
 
-    lstm_units = 256
-    se_comp_bilstm1_out = se_comp_BiLSTM(lstm_units,masking_enabled=masking_enabled)(se_bert_out)
+    # lstm_units = 256
+    # se_comp_bilstm1_out = se_comp_BiLSTM(lstm_units,masking_enabled=masking_enabled)(se_bert_out)
 
     # create a buffer to store previous sentence encodings from this section
     # add time distributed, as it removes the None element in the lstm output, 
@@ -278,11 +268,11 @@ def build_Att_BiLSTM(
     # se_comp_bilstm2_out = se_comp_BiLSTM(lstm_units)(out)
 
     # dense_0_out = custom_dense(output_neurons=lstm_units,name="dense_0")(se_comp_bilstm2_out)
-    dense_1_out = custom_dense(output_neurons=1,name="dense_1")(se_comp_bilstm1_out)
+    # dense_1_out = custom_dense(output_neurons=1,name="dense_1")(se_comp_bilstm1_out)
 
-    softmax_out = Softmax(name="boundry_out",axis=-2)(dense_1_out)
+    # softmax_out = Softmax(name="boundry_out",axis=-2)(dense_1_out)
 
-    return [word2vec_input,bert_input],softmax_out
+    return [word2vec_input,bert_input],se_out
 
 
 if __name__=="__main__":
