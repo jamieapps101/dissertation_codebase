@@ -8,67 +8,20 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 # 2 = INFO and WARNING messages are not printed
 # 3 = INFO, WARNING, and ERROR messages are not printed
 
-# Obvs:
 import tensorflow as tf
-
 import numpy as np
 import matplotlib.pyplot as plt
-
 import tensorflow as tf
 tf.executing_eagerly()
-
 from tensorflow import keras
-from tensorflow.keras.layers import LSTM,Embedding,Dense,Multiply,Bidirectional,Softmax,Dot,Attention,MaxPooling1D,Reshape,Add,Concatenate,ConvLSTM2D,Subtract,RepeatVector,TimeDistributed,Masking, Reshape
+from tensorflow.keras.layers import LSTM,Embedding,Dense,Multiply,Bidirectional,Softmax,Dot,Attention,MaxPooling1D,Reshape,Add,Concatenate,ConvLSTM2D,Subtract,MaxPool2D,RepeatVector,TimeDistributed,Masking, Reshape
 from tensorflow.keras import activations
 from tensorflow import linalg
 from tensorflow.keras.utils import plot_model
 
-
-# Sentence encoding BiLSTM
-class se_BiLSTM(keras.layers.Layer):
-    def __init__(self, return_sequences=False):
-        super(se_BiLSTM, self).__init__()
-        self.x_forward = LSTM(
-            units = 256,
-            activation='tanh',
-            recurrent_activation='sigmoid', # check this
-            return_sequences=return_sequences,
-            go_backwards=False,
-            stateful=True,
-        )
-        self.x_backward = LSTM(
-            units = 256,
-            activation='tanh',
-            recurrent_activation='sigmoid', # check this
-            return_sequences=return_sequences,
-            go_backwards=True,
-            stateful=True,
-        )
-        self.add=Add()
-
-    def call(self, input_t,mask=None):
-        return self.add([self.x_forward(input_t,mask=mask),self.x_backward(input_t,mask=mask)])
-
-
-class custom_SAT(keras.layers.Layer):
-    def __init__(self, output_vec_len = 300):
-        super(custom_SAT, self).__init__()
-        self.dense0 = Dense(units=output_vec_len, activation=activations.tanh)
-
-        initializer = tf.keras.initializers.RandomUniform(minval=0., maxval=1.)
-        self.u_w = tf.Variable(initial_value=initializer((output_vec_len,output_vec_len,)),
-                               trainable=True)
-
-    def call(self, h_it): 
-        # x -> <batch_size>,None,None,300
-        u_it = self.dense0(h_it) # <batch_size>,None,None,300
-        a_it = tf.math.softmax(linalg.matmul(u_it,self.u_w), axis=-2) # <batch_size>,None,None,300
-        s_t = tf.math.reduce_sum(tf.multiply(a_it,h_it), axis=-2, keepdims=False, name=None) # <batch_size>,None,300
-        return s_t
-
-class se_Att_BiLSTM(keras.layers.Layer):
-    def __init__(self, output_vec_len = 300,masking_enabled=True,**kwargs):
-        super(se_Att_BiLSTM, self).__init__(**kwargs)
+class WE_SeAtt_BiLSTM(keras.layers.Layer):
+    def __init__(self, output_vec_len = 300,masking_enabled=True,SeATT_enabled=True,**kwargs):
+        super(WE_SeAtt_BiLSTM, self).__init__(**kwargs)
         self.masking_enabled = masking_enabled
         if masking_enabled:
             self.masking = Masking(mask_value=0.0)
@@ -82,7 +35,6 @@ class se_Att_BiLSTM(keras.layers.Layer):
             name="lstm_0",
         )
         self.bilstm_0 = tf.keras.layers.Bidirectional(self.lstm_0, merge_mode='sum')
-
         self.lstm_1 = LSTM(
             units = output_vec_len,
             activation='tanh',
@@ -92,7 +44,10 @@ class se_Att_BiLSTM(keras.layers.Layer):
             name="lstm_1",
         )
         self.bilstm_1 = tf.keras.layers.Bidirectional(self.lstm_1, merge_mode='sum')
-        self.sat     = custom_SAT()
+        if SeATT_enabled:
+            self.sat     = custom_SAT()
+        else:
+            self.max_pool = MaxPool2D
 
     def call(self, x):
         if self.masking_enabled:
@@ -103,6 +58,21 @@ class se_Att_BiLSTM(keras.layers.Layer):
         c = self.sat(b)
         return c
 
+
+class custom_SAT(keras.layers.Layer):
+    def __init__(self, output_vec_len = 300):
+        super(custom_SAT, self).__init__()
+        self.dense0 = Dense(units=output_vec_len, activation=activations.tanh)
+        initializer = tf.keras.initializers.RandomUniform(minval=0., maxval=1.)
+        self.u_w = tf.Variable(initial_value=initializer((output_vec_len,output_vec_len,)),
+                               trainable=True)
+    def call(self, h_it): 
+        # x -> <batch_size>,None,None,300
+        u_it = self.dense0(h_it) # <batch_size>,None,None,300
+        a_it = tf.math.softmax(linalg.matmul(u_it,self.u_w), axis=-2) # <batch_size>,None,None,300
+        s_t = tf.math.reduce_sum(tf.multiply(a_it,h_it), axis=-2, keepdims=False, name=None) # <batch_size>,None,300
+        return s_t
+
 # Sentence encoding Comparison BiLSTM
 class se_comp_BiLSTM(keras.layers.Layer):
     def __init__(self, lstm_units = 256,masking_enabled=True):
@@ -110,28 +80,22 @@ class se_comp_BiLSTM(keras.layers.Layer):
         self.masking_enabled = masking_enabled
         if masking_enabled:
             self.masking = Masking(mask_value=0.0)
-        self.x_forward = LSTM(
-            units = lstm_units,
-            # recurrent_activation=activations.tanh, # check this
+        self.lstm_0 = LSTM(
+            units = output_vec_len,
+            activation='tanh',
+            recurrent_activation='sigmoid', # check this
             return_sequences=True,
-            go_backwards=False,
             stateful=True,
+            name="lstm_0",
         )
-        self.x_backward = LSTM(
-            units = lstm_units,
-            # recurrent_activation=activations.tanh, # check this
-            return_sequences=True,
-            go_backwards=True,
-            stateful=True,
-        )
-        self.add=Add()
+        self.bilstm_0 = tf.keras.layers.Bidirectional(self.lstm_0, merge_mode='sum')
 
     def call(self, input_t):
         if self.masking_enabled:
             x = self.masking(input_t)
-            return self.add([self.x_forward(x),self.x_backward(x)])
+            return self.bilstm_0(x)
         else:
-            return self.add([self.x_forward(input_t),self.x_backward(input_t)])
+            return self.bilstm_0(input_t)
 
 # This item collects previous inputs, and performes the selective self attention
 # while returning outputs of the same shape for lstm after wards
@@ -251,12 +215,12 @@ def build_Att_BiLSTM(
     # 3 - None - no of words
     # 4 - 300 - word encoding size
     word2vec_input = keras.Input(shape=(None,None,embedding_length), batch_size=batch_size,dtype="float32",name="WE")
+    se_out = TimeDistributed(WE_SeAtt_BiLSTM(name="self_att_bilstm_hello",masking_enabled=masking_enabled))(word2vec_input)
     bert_input = keras.Input(shape=(None,bert_embedding_length),batch_size=batch_size, dtype="float32", name="SE")
-    se_out = TimeDistributed(se_Att_BiLSTM(name="self_att_bilstm_hello",masking_enabled=masking_enabled))(word2vec_input)
-    # se_bert_out = Concatenate()([bert_input,se_out])
+    se_bert_out = Concatenate()([bert_input,se_out])
 
-    # lstm_units = 256
-    # se_comp_bilstm1_out = se_comp_BiLSTM(lstm_units,masking_enabled=masking_enabled)(se_bert_out)
+    lstm_units = 256
+    se_comp_bilstm1_out = se_comp_BiLSTM(lstm_units,masking_enabled=masking_enabled)(se_bert_out)
 
     # create a buffer to store previous sentence encodings from this section
     # add time distributed, as it removes the None element in the lstm output, 
@@ -267,27 +231,18 @@ def build_Att_BiLSTM(
     # out = tf.concat([se_comp_bilstm1_out,sentence_encodings_stack],axis=-1)
     # se_comp_bilstm2_out = se_comp_BiLSTM(lstm_units)(out)
 
-    # dense_0_out = custom_dense(output_neurons=lstm_units,name="dense_0")(se_comp_bilstm2_out)
-    # dense_1_out = custom_dense(output_neurons=1,name="dense_1")(se_comp_bilstm1_out)
+    dense_0_out = custom_dense(output_neurons=lstm_units,name="dense_0")(se_comp_bilstm1_out)
+    dense_1_out = custom_dense(output_neurons=1,name="dense_1")(dense_0_out)
 
-    # softmax_out = Softmax(name="boundry_out",axis=-2)(dense_1_out)
+    softmax_out = Softmax(name="boundry_out",axis=-2)(dense_1_out)
 
-    return [word2vec_input,bert_input],se_out
+    return [word2vec_input,bert_input],softmax_out
 
 
 if __name__=="__main__":
     print("Running from {}".format(__file__))
     
     batch_size=64
-
-
-    # lstm_units = 256
-    # word2vec_input = keras.Input(shape=(None,lstm_units), batch_size=batch_size,dtype="float32",name="WE")
-    # # t_stacker = RSA_layer(window_size=5,input_units=lstm_units)
-    # # sentence_encodings_stack = TimeDistributed(t_stacker)(word2vec_input)
-    # seab = se_Att_BiLSTM() 
-    # out = seab(word2vec_input)
-    # model = keras.Model(word2vec_input, out)
     
 
     raw_inputs,outputs = build_Att_BiLSTM(batch_size=batch_size)

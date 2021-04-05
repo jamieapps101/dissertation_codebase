@@ -141,11 +141,11 @@ def test_step(we,se, gt):
 # Instantiate an optimizer.
 lr_schedule = keras.optimizers.schedules.InverseTimeDecay(
     initial_learning_rate=1e-2,
-    decay_steps=100,
+    decay_steps=1000,
     decay_rate=0.8, # sweeps from 0.01 to 0.0001 over the 10 epochs
     staircase=False)
-optimizer = keras.optimizers.Adam(learning_rate=lr_schedule)
-# optimizer = keras.optimizers.Adam(learning_rate=0.1)
+# optimizer = keras.optimizers.Adam(learning_rate=lr_schedule)
+optimizer = keras.optimizers.Adam(learning_rate=0.001)
 # Instantiate a loss function.
 loss_fn = keras.losses.BinaryCrossentropy(from_logits=True)
 
@@ -243,7 +243,8 @@ if __name__=="__main__":
     datasets = fetch_data()
 
     # get model
-    model = get_model({"path":"/app/data/models/04_04_12_26","epoch":0})
+    # model = get_model({"path":"/app/data/models/04_04_12_26","epoch":0})
+    model = get_model()
 
     epochs = 10
     train_model(epochs)
