@@ -178,7 +178,7 @@ model=None
 def get_model(load_weights_from=None):
     raw_inputs,outputs = model_generation.build_Att_BiLSTM(
         batch_size=batch_size,
-        masking_enabled=False)
+        masking_enabled=True)
     model = keras.Model(raw_inputs, outputs)
 
     # run training loop
@@ -205,14 +205,14 @@ def train_model(epochs):
         start_time = time.time()
 
         # Iterate over the batches of the dataset.
-        for step, (we_batch,se_batch,gt_batch) in enumerate(datasets["city"]["test"]):
+        for step, (we_batch,se_batch,gt_batch) in enumerate(datasets["city"]["train"]):
             loss_value = train_step(we_batch,se_batch,gt_batch)
 
             # Log every 10 batches.
             if step % 20 == 0:
                 print("Step {}, per batch training loss: {:.6}, total training samples: {}".format(step, float(loss_value),(step + 1) * batch_size ))
-            if step == 20:
-                break
+            # if step == 20:
+                # break
         model.save_weights(os.path.join(model_save_path,"model_epoch_{}".format(epoch)))
         # model.save(os.path.join(model_save_path,"model_whole_epoch_{}".format(epoch)))
         # Display metrics at the end of each epoch.
