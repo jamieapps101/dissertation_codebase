@@ -32,6 +32,7 @@ class WE_SeAtt_BiLSTM(keras.layers.Layer):
             recurrent_activation='sigmoid', # check this
             return_sequences=True,
             stateful=True,
+            return_state=True,
             name="lstm_0",
         )
         self.bilstm_0 = tf.keras.layers.Bidirectional(self.lstm_0, merge_mode='sum')
@@ -41,6 +42,7 @@ class WE_SeAtt_BiLSTM(keras.layers.Layer):
             recurrent_activation='sigmoid', # check this
             return_sequences=True,
             stateful=True,
+            return_state=False,
             name="lstm_1",
         )
         self.bilstm_1 = tf.keras.layers.Bidirectional(self.lstm_1, merge_mode='sum')
@@ -49,14 +51,16 @@ class WE_SeAtt_BiLSTM(keras.layers.Layer):
         else:
             self.max_pool = MaxPool2D
 
-    def call(self, x):
+    def call(self, input_t):
         if self.masking_enabled:
-            x = self.masking(x)
-        y = self.dense_0(x)
-        a = self.bilstm_0(y)
-        b = self.bilstm_0(a)
-        c = self.sat(b)
-        return c
+            masked_input = self.masking(input_t)
+            dense_out = self.dense_0(masked_input)
+        else:
+            dense_out = self.dense_0(input_t)
+        bilstm_0_out = self.bilstm_0(dense_out)
+        bilstm_1_out = self.bilstm_1(bilstm_0_out)
+        sat_out = self.sat(bilstm_1_out)
+        return sat_out
 
 
 class custom_SAT(keras.layers.Layer):
@@ -81,11 +85,12 @@ class se_comp_BiLSTM(keras.layers.Layer):
         if masking_enabled:
             self.masking = Masking(mask_value=0.0)
         self.lstm_0 = LSTM(
-            units = output_vec_len,
+            units = lstm_units,
             activation='tanh',
             recurrent_activation='sigmoid', # check this
             return_sequences=True,
             stateful=True,
+            # return_state=True,
             name="lstm_0",
         )
         self.bilstm_0 = tf.keras.layers.Bidirectional(self.lstm_0, merge_mode='sum')

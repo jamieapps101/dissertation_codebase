@@ -21,6 +21,8 @@ from datetime import datetime,timezone
 import time
 
 
+# [1] - https://medium.com/@keeper6928/how-to-unit-test-machine-learning-code-57cf6fd81765
+
 # import from other files
 import model_generation
 
@@ -98,7 +100,7 @@ def get_split(we,se,gt):
 dataset_dir = "/app/data/processed/data_8/"
 batch_size  = 8
 
-content = ["city"]
+content = ["disease"]
 # content = ["disease","city"]
 types   = ["train","test","validation"]
 # items = [7,2,1]
@@ -120,65 +122,22 @@ def fetch_data():
             datasets[c][t]   = buffered_dataset
     return datasets
 
-# define tf functions
-@tf.function
-def train_step(we,se, gt):
-    with tf.GradientTape() as tape:
-        logits = model({"WE":we,"SE":se}, training=True)
-        loss_value = loss_fn(gt, logits)
-    grads = tape.gradient(loss_value, model.trainable_weights)
-    optimizer.apply_gradients(zip(grads, model.trainable_weights))
-    train_acc_metric.update_state(gt, logits)
-    return loss_value
-
-@tf.function
-def test_step(we,se, gt):
-    val_logits = model({"WE":we,"SE":se}, training=False)
-    val_acc_metric.update_state(gt, val_logits)
 
 
-# Train model with manual trianing loops
-# Instantiate an optimizer.
-lr_schedule = keras.optimizers.schedules.InverseTimeDecay(
-    initial_learning_rate=1e-2,
-    decay_steps=1000,
-    decay_rate=0.8, # sweeps from 0.01 to 0.0001 over the 10 epochs
-    staircase=False)
-# optimizer = keras.optimizers.Adam(learning_rate=lr_schedule)
-optimizer = keras.optimizers.Adam(learning_rate=0.001)
-# Instantiate a loss function.
-loss_fn = keras.losses.BinaryCrossentropy(from_logits=True)
-
-current_dir = "{:%m_%d_%H_%M}".format(datetime.now(timezone.utc))
-model_save_path = "/app/data/models/"+current_dir
-print("checkpoints stored in:\n\t{}".format(model_save_path))
-os.makedirs(model_save_path,exist_ok=True)
-# Prepare the metrics.
-train_acc_metric    = keras.metrics.BinaryCrossentropy()
-train_loss_metric   = keras.metrics.BinaryCrossentropy()
-val_acc_metric      = keras.metrics.BinaryCrossentropy()
-val_los_metric      = keras.metrics.BinaryCrossentropy()
-
-history = pd.DataFrame({
-    'validation_acc': np.array([]),
-    'train_loss': np.array([]),
-    'train_acc': np.array([]),
-    'epoch': np.array([]),
-})
 
 # setup training params
 # Instantiate an optimizer.
 # get model
-model=None
+
 # pass in dict of path to dir and epoch number:
 # {
 #     path: "",
 #     epoch: 5,
 # }
-def get_model(load_weights_from=None):
+def get_model(load_weights_from=None,masking_enabled=True):
     raw_inputs,outputs = model_generation.build_Att_BiLSTM(
         batch_size=batch_size,
-        masking_enabled=True)
+        masking_enabled=masking_enabled)
     model = keras.Model(raw_inputs, outputs)
 
     # run training loop
@@ -195,24 +154,98 @@ def get_model(load_weights_from=None):
             print("path:\n{}\ndoes not exist".format(load_weights_from["path"]))
     # model.compile(run_eagerly=True)
     return model
+    
+
+if __name__=="__main__":
+    
 
 
+    # load data
+    datasets = fetch_data()
 
-def train_model(epochs):
-    global history
+    # Train model with manual trianing loops
+    # Instantiate an optimizer.
+    lr_schedule = keras.optimizers.schedules.InverseTimeDecay(
+        initial_learning_rate=1e-2,
+        decay_steps=1000,
+        decay_rate=0.8, # sweeps from 0.01 to 0.0001 over the 10 epochs
+        staircase=False)
+    # optimizer = keras.optimizers.Adam(learning_rate=lr_schedule)
+    # optimizer = keras.optimizers.Adam(learning_rate=0.001)
+    optimizer = keras.optimizers.SGD(learning_rate=0.01)
+    # Instantiate a loss function.
+    loss_fn = keras.losses.BinaryCrossentropy(from_logits=True)
+
+    current_dir = "{:%m_%d_%H_%M}".format(datetime.now(timezone.utc))
+    model_save_path = "/app/data/models/"+current_dir
+    print("checkpoints stored in:\n\t{}".format(model_save_path))
+    os.makedirs(model_save_path,exist_ok=True)
+    # Prepare the metrics.
+    train_acc_metric    = keras.metrics.BinaryCrossentropy()
+    train_loss_metric   = keras.metrics.BinaryCrossentropy()
+    val_acc_metric      = keras.metrics.BinaryCrossentropy()
+    val_los_metric      = keras.metrics.BinaryCrossentropy()
+
+    history = pd.DataFrame({
+        'validation_acc': np.array([]),
+        'train_loss': np.array([]),
+        'train_acc': np.array([]),
+        'epoch': np.array([]),
+    })
+
+
+    # define tf functions
+    @tf.function
+    def train_step(we,se, gt):
+        with tf.GradientTape() as tape:
+            logits = model({"WE":we,"SE":se}, training=True)
+            loss_value = loss_fn(gt, logits)
+        grads = tape.gradient(loss_value, model.trainable_weights)
+        optimizer.apply_gradients(zip(grads, model.trainable_weights))
+        train_acc_metric.update_state(gt, logits)
+        return loss_value
+
+    @tf.function
+    def test_step(we,se, gt,print_example):
+        val_logits = model({"WE":we,"SE":se}, training=False)
+        val_acc_metric.update_state(gt, val_logits)
+        # try:
+        #     if print_example==True:
+        #         print("gt:\n{}".format(gt))
+        #         print("val_logits:\n{}".format(val_logits))
+
+
+    # get model
+    # model = get_model({"path":"/app/data/models/04_04_12_26","epoch":0})
+    model = get_model(masking_enabled=True)
+
+    epochs = 10
+
     for epoch in range(epochs):
         print("\nStart of epoch %d" % (epoch,))
         start_time = time.time()
 
-        # Iterate over the batches of the dataset.
-        for step, (we_batch,se_batch,gt_batch) in enumerate(datasets["city"]["train"]):
-            loss_value = train_step(we_batch,se_batch,gt_batch)
+        # get a snapshot of weights before the training epoch
+        before = model.trainable_variables
 
+        # Iterate over the batches of the dataset. from [1]
+        step_start_time = time.time()
+        ave_step_time = 0
+        for step, (we_batch,se_batch,gt_batch) in enumerate(datasets["disease"]["train"]):
+            loss_value = train_step(we_batch,se_batch,gt_batch)
+            step_time = time.time()-step_start_time
+            ave_step_time = (3*ave_step_time+step_time)/4
             # Log every 10 batches.
             if step % 20 == 0:
-                print("Step {}, per batch training loss: {:.6}, total training samples: {}".format(step, float(loss_value),(step + 1) * batch_size ))
-            # if step == 20:
-                # break
+                print("Step {}, per batch training loss: {:.6}, total training samples: {}, ave step time: {:.1}s".format(step, float(loss_value),(step + 1) * batch_size, ave_step_time))
+
+        # get a snapshot of after the epoch, and compare from[1]
+        after = model.trainable_variables
+        for b, a in zip(before, after):
+            # Make sure something changed.
+            if np.any(b.numpy() != a.numpy()):
+                print("{} has not changed".format(a.name))
+
         model.save_weights(os.path.join(model_save_path,"model_epoch_{}".format(epoch)))
         # model.save(os.path.join(model_save_path,"model_whole_epoch_{}".format(epoch)))
         # Display metrics at the end of each epoch.
@@ -221,8 +254,13 @@ def train_model(epochs):
         # Reset training metrics at the end of each epoch
         train_acc_metric.reset_states()
         # Run a validation loop at the end of each epoch.
-        for (we_val_batch,se_val_batch,gt_val_batch) in datasets["city"]["validation"]:
-            test_step(we_val_batch,se_val_batch,gt_val_batch)
+        print_example = False
+        for step,(we_val_batch,se_val_batch,gt_val_batch) in enumerate(datasets["disease"]["validation"]):
+            if step==0:
+                print_example = True
+            else:
+                print_example = False
+            test_step(we_val_batch,se_val_batch,gt_val_batch,print_example)
 
         val_acc = val_acc_metric.result()
         val_acc_metric.reset_states()
@@ -235,19 +273,7 @@ def train_model(epochs):
             'epoch': epoch,
         }, ignore_index=True)
 
-if __name__=="__main__":
-    
 
-
-    # load data
-    datasets = fetch_data()
-
-    # get model
-    # model = get_model({"path":"/app/data/models/04_04_12_26","epoch":0})
-    model = get_model()
-
-    epochs = 10
-    train_model(epochs)
 
 
     # save model
