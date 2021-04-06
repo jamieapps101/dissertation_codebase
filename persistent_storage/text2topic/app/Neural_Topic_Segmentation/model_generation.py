@@ -66,8 +66,8 @@ class WE_SeAtt_BiLSTM(keras.layers.Layer):
             dense_out = self.dense_0(input_t)
         bilstm_0_out  = self.bilstm_0(dense_out)
         bilstm_1_out  = self.bilstm_1(bilstm_0_out)
-        dropout_0_out = self.dropout_0(bilstm_1_out)
-        sat_out       = self.sat(dropout_0_out)
+        # dropout_0_out = self.dropout_0(bilstm_1_out)
+        sat_out       = self.sat(bilstm_1_out)
         return sat_out
 
 
@@ -233,10 +233,10 @@ def build_Att_BiLSTM(
     se_out = TimeDistributed(WE_SeAtt_BiLSTM(name="self_att_bilstm_hello",masking_enabled=masking_enabled))(word2vec_input)
     bert_input = keras.Input(shape=(None,bert_embedding_length),batch_size=batch_size, dtype="float32", name="SE")
     se_bert_out = Concatenate()([bert_input,se_out])
-    dropout_out = tf.keras.layers.Dropout(0.05)(se_bert_out)
+    # dropout_out = tf.keras.layers.Dropout(0.05)(se_bert_out)
 
     lstm_units = 256
-    se_comp_bilstm1_out = se_comp_BiLSTM(lstm_units,masking_enabled=masking_enabled)(dropout_out)
+    se_comp_bilstm1_out = se_comp_BiLSTM(lstm_units,masking_enabled=masking_enabled)(se_bert_out)
 
     # create a buffer to store previous sentence encodings from this section
     # add time distributed, as it removes the None element in the lstm output, 

@@ -274,8 +274,8 @@ if __name__=="__main__":
                 before = after
             
             # quit after 100 batches
-            if step >= 100:
-                break
+            # if step >= 100:
+            #     break
             
 
         model.save_weights(os.path.join(model_save_path,"model_epoch_{}".format(epoch)))
