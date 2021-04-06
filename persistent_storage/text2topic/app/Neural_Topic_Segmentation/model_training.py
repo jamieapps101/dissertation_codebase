@@ -171,8 +171,8 @@ if __name__=="__main__":
         decay_rate=0.8, # sweeps from 0.01 to 0.0001 over the 10 epochs
         staircase=False)
     # optimizer = keras.optimizers.Adam(learning_rate=lr_schedule)
-    # optimizer = keras.optimizers.Adam(learning_rate=0.001)
-    optimizer = keras.optimizers.SGD(learning_rate=0.01)
+    optimizer = keras.optimizers.Adam(learning_rate=0.001)
+    # optimizer = keras.optimizers.SGD(learning_rate=0.01)
     # Instantiate a loss function.
     loss_fn = keras.losses.BinaryCrossentropy(from_logits=False)
     # loss_fn = keras.losses.BinaryCrossentropy(from_logits=True)
@@ -183,12 +183,12 @@ if __name__=="__main__":
     model_save_path = "/app/data/models/"+current_dir
 
     ## setup tensorboard stuff
-    model_logging_path = os.path.join(model_save_path,"logs")
+    model_logging_path = os.path.join("/app/data/logs",current_dir)
     model_logging_debugger_path = os.path.join(model_logging_path,"debugger")
     model_logging_gradTape_path = os.path.join(model_logging_path,"gradient_tape")
-    model_logging_gradTape_path_test  = os.path.join(model_logging_gradTape_path,"test")
-    model_logging_gradTape_path_train = os.path.join(model_logging_gradTape_path,"train")
-    model_logging_gradTape_path_graph = os.path.join(model_logging_gradTape_path,"graph")
+    # model_logging_gradTape_path_test  = os.path.join(model_logging_gradTape_path,"test")
+    # model_logging_gradTape_path_train = os.path.join(model_logging_gradTape_path,"train")
+    # model_logging_gradTape_path_graph = os.path.join(model_logging_gradTape_path,"graph")
     paths = [
         model_save_path,
         model_logging_path,
@@ -198,9 +198,9 @@ if __name__=="__main__":
         model_logging_gradTape_path_graph,
         model_logging_debugger_path,
     ]
-    train_summary_writer = tf.summary.create_file_writer(model_logging_gradTape_path_train)
-    test_summary_writer  = tf.summary.create_file_writer(model_logging_gradTape_path_test)
-    graph_summary_writer  = tf.summary.create_file_writer(model_logging_gradTape_path_graph)
+    train_summary_writer = tf.summary.create_file_writer(model_logging_gradTape_path,name="test")
+    test_summary_writer  = tf.summary.create_file_writer(model_logging_gradTape_path,name="train")
+    graph_summary_writer = tf.summary.create_file_writer(model_logging_gradTape_path,name="graph")
     print("checkpoints stored in:\n\t{}".format(model_save_path))
     for path in paths:
         os.makedirs(path,exist_ok=True)
@@ -286,8 +286,9 @@ if __name__=="__main__":
                 before = None
                 before = after
             
-            # if step == 40:
-                # break
+            # quit after 100 batches
+            if step >= 100:
+                break
             
 
         model.save_weights(os.path.join(model_save_path,"model_epoch_{}".format(epoch)))
