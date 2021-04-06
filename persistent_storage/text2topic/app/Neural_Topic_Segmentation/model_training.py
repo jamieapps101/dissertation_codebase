@@ -174,17 +174,55 @@ if __name__=="__main__":
     # optimizer = keras.optimizers.Adam(learning_rate=0.001)
     optimizer = keras.optimizers.SGD(learning_rate=0.01)
     # Instantiate a loss function.
-    loss_fn = keras.losses.BinaryCrossentropy(from_logits=True)
+    loss_fn = keras.losses.BinaryCrossentropy(from_logits=False)
+    # loss_fn = keras.losses.BinaryCrossentropy(from_logits=True)
+    # loss_fn = keras.losses.SparseCategoricalCrossentropy(from_logits=False)
+    # loss_fn = keras.losses.SparseCategoricalCrossentropy(from_logits=True)
 
     current_dir = "{:%m_%d_%H_%M}".format(datetime.now(timezone.utc))
     model_save_path = "/app/data/models/"+current_dir
+
+    ## setup tensorboard stuff
+    model_logging_path = os.path.join(model_save_path,"logs")
+    model_logging_debugger_path = os.path.join(model_logging_path,"debugger")
+    model_logging_gradTape_path = os.path.join(model_logging_path,"gradient_tape")
+    model_logging_gradTape_path_test  = os.path.join(model_logging_gradTape_path,"test")
+    model_logging_gradTape_path_train = os.path.join(model_logging_gradTape_path,"train")
+    model_logging_gradTape_path_graph = os.path.join(model_logging_gradTape_path,"graph")
+    paths = [
+        model_save_path,
+        model_logging_path,
+        model_logging_gradTape_path,
+        model_logging_gradTape_path_test,
+        model_logging_gradTape_path_train,
+        model_logging_gradTape_path_graph,
+        model_logging_debugger_path,
+    ]
+    train_summary_writer = tf.summary.create_file_writer(model_logging_gradTape_path_train)
+    test_summary_writer  = tf.summary.create_file_writer(model_logging_gradTape_path_test)
+    graph_summary_writer  = tf.summary.create_file_writer(model_logging_gradTape_path_graph)
     print("checkpoints stored in:\n\t{}".format(model_save_path))
-    os.makedirs(model_save_path,exist_ok=True)
-    # Prepare the metrics.
-    train_acc_metric    = keras.metrics.BinaryCrossentropy()
-    train_loss_metric   = keras.metrics.BinaryCrossentropy()
-    val_acc_metric      = keras.metrics.BinaryCrossentropy()
-    val_los_metric      = keras.metrics.BinaryCrossentropy()
+    for path in paths:
+        os.makedirs(path,exist_ok=True)
+    # Define our metrics
+    train_loss     = tf.keras.metrics.Mean('train_loss', dtype=tf.float32)
+    train_accuracy = tf.keras.metrics.SparseCategoricalAccuracy('train_accuracy')
+    test_loss      = tf.keras.metrics.Mean('test_loss', dtype=tf.float32)
+    test_accuracy  = tf.keras.metrics.SparseCategoricalAccuracy('test_accuracy')
+    # enabled beast mode debugging
+    tf.debugging.experimental.enable_dump_debug_info(
+        logdir=model_logging_debugger_path,
+        tensor_debug_mode="FULL_HEALTH",
+        circular_buffer_size=1000) # save only the last 1000 tensors
+
+
+
+
+    # # Prepare the metrics.
+    # train_acc_metric    = keras.metrics.BinaryCrossentropy()
+    # train_loss_metric   = keras.metrics.BinaryCrossentropy()
+    # val_acc_metric      = keras.metrics.BinaryCrossentropy()
+    # val_los_metric      = keras.metrics.BinaryCrossentropy()
 
     history = pd.DataFrame({
         'validation_acc': np.array([]),
@@ -202,21 +240,17 @@ if __name__=="__main__":
             loss_value = loss_fn(gt, logits)
         grads = tape.gradient(loss_value, model.trainable_weights)
         optimizer.apply_gradients(zip(grads, model.trainable_weights))
-        train_acc_metric.update_state(gt, logits)
+        train_accuracy.update_state(gt, logits)
+        train_loss.update_state(gt, logits)
         return loss_value
 
     @tf.function
-    def test_step(we,se, gt,print_example):
+    def test_step(we,se, gt):
         val_logits = model({"WE":we,"SE":se}, training=False)
-        val_acc_metric.update_state(gt, val_logits)
-        # try:
-        #     if print_example==True:
-        #         print("gt:\n{}".format(gt))
-        #         print("val_logits:\n{}".format(val_logits))
+        test_loss.update_state(gt, val_logits)
+        test_accuracy.update_state(gt, val_logits)
 
 
-    # get model
-    # model = get_model({"path":"/app/data/models/04_04_12_26","epoch":0})
     model = get_model(masking_enabled=True)
 
     epochs = 10
@@ -235,44 +269,60 @@ if __name__=="__main__":
             loss_value = train_step(we_batch,se_batch,gt_batch)
             step_time = time.time()-step_start_time
             ave_step_time = (3*ave_step_time+step_time)/4
-            # Log every 10 batches.
+            # Log every 20 batches.
             if step % 20 == 0:
-                print("Step {}, per batch training loss: {:.8}\ntotal training samples: {}, ave step time: {:.1}s\n".format(step, float(loss_value),(step + 1) * batch_size, ave_step_time))
+                print("Step {}, \n per batch training loss: {:.8}\ntotal training samples: {},\nave step time: {:.1}s".format(step, float(loss_value),(step + 1) * batch_size, ave_step_time))
                 # get a snapshot of after the epoch, and compare from[1]
+                layers_count = 0
+                changed_layers_count = 0
                 after = model.trainable_variables
                 for b, a in zip(before, after):
+                    layers_count+=1
                     # Make sure something changed.
                     if np.any(b.numpy() != a.numpy()):
                         print("{} has not changed".format(a.name))
+                        changed_layers_count+=1
+                print("{}/{} layers with no changed weights\n".format(changed_layers_count,layers_count))
                 before = None
                 before = after
+            
+            if step == 40:
+                break
+            
 
         model.save_weights(os.path.join(model_save_path,"model_epoch_{}".format(epoch)))
         # model.save(os.path.join(model_save_path,"model_whole_epoch_{}".format(epoch)))
         # Display metrics at the end of each epoch.
-        train_acc = train_acc_metric.result()
+        train_acc = train_accuracy.result()
         print("Training acc over epoch: {:.4}".format(float(train_acc),))
         # Reset training metrics at the end of each epoch
-        train_acc_metric.reset_states()
         # Run a validation loop at the end of each epoch.
-        print_example = False
         for step,(we_val_batch,se_val_batch,gt_val_batch) in enumerate(datasets["disease"]["validation"]):
-            if step==0:
-                print_example = True
-            else:
-                print_example = False
-            test_step(we_val_batch,se_val_batch,gt_val_batch,print_example)
+            test_step(we_val_batch,se_val_batch,gt_val_batch)
 
-        val_acc = val_acc_metric.result()
-        val_acc_metric.reset_states()
         print("Validation acc: %.4f" % (float(val_acc),))
         print("Time taken: %.2fs" % (time.time() - start_time))
-        history = history.append({
-            'validation_acc': val_acc,
-            'train_loss': loss_value,
-            'train_acc': train_acc,
-            'epoch': epoch,
-        }, ignore_index=True)
+
+
+        # tensorboard logging stuff
+        with train_summary_writer.as_default():
+            tf.summary.scalar('loss', train_loss.result(), step=epoch)
+            tf.summary.scalar('accuracy', train_accuracy.result(), step=epoch)
+
+        with test_summary_writer.as_default():
+            tf.summary.scalar('loss', test_loss.result(), step=epoch)
+            tf.summary.scalar('accuracy', test_accuracy.result(), step=epoch)
+        with writer.as_default():
+          tf.summary.graph(model)
+
+        ## Reset metrics every epoch
+        train_loss.reset_states()
+        test_loss.reset_states()
+        train_accuracy.reset_states()
+        test_accuracy.reset_states()
+
+
+
 
 
 

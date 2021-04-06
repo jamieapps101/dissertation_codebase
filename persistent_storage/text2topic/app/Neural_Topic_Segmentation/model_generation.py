@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 tf.executing_eagerly()
 from tensorflow import keras
-from tensorflow.keras.layers import LSTM,Embedding,Dense,Multiply,Bidirectional,Softmax,Dot,Attention,MaxPooling1D,Reshape,Add,Concatenate,ConvLSTM2D,Subtract,MaxPool2D,RepeatVector,TimeDistributed,Masking, Reshape
+from tensorflow.keras.layers import LSTM,Embedding,Dense,Multiply,Bidirectional,Softmax,Dot,Attention,MaxPooling1D,Reshape,Add,Concatenate,ConvLSTM2D,Subtract,MaxPool2D,RepeatVector,TimeDistributed,Masking,ReLU,LeakyReLU,Reshape
 from tensorflow.keras import activations
 from tensorflow import linalg
 from tensorflow.keras.utils import plot_model
@@ -239,7 +239,8 @@ def build_Att_BiLSTM(
     dense_0_out = custom_dense(output_neurons=lstm_units,name="dense_0")(se_comp_bilstm1_out)
     dense_1_out = custom_dense(output_neurons=1,name="dense_1")(dense_0_out)
 
-    softmax_out = Softmax(name="boundry_out",axis=-2)(dense_1_out)
+    # softmax_out = Softmax(name="boundry_out",axis=-2)(dense_1_out)
+    softmax_out = LeakyReLU(name="boundry_out")(dense_1_out)
 
     return [word2vec_input,bert_input],softmax_out
 
