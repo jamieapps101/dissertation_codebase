@@ -237,12 +237,13 @@ def build_Att_BiLSTM(
     # se_comp_bilstm2_out = se_comp_BiLSTM(lstm_units)(out)
 
     dense_0_out = custom_dense(output_neurons=lstm_units,name="dense_0")(se_comp_bilstm1_out)
-    dense_1_out = custom_dense(output_neurons=1,name="dense_1")(dense_0_out)
+    LRe_0_out = LeakyReLU(name="LRe_0")(dense_0_out)
+    dense_1_out = custom_dense(output_neurons=1,name="dense_1")(LRe_0_out)
 
-    # softmax_out = Softmax(name="boundry_out",axis=-2)(dense_1_out)
-    softmax_out = LeakyReLU(name="boundry_out")(dense_1_out)
+    # boundry_out_out = Softmax(name="boundry_out",axis=-2)(dense_1_out)
+    boundry_out_out = LeakyReLU(name="boundry_out")(dense_1_out)
 
-    return [word2vec_input,bert_input],softmax_out
+    return [word2vec_input,bert_input],boundry_out_out
 
 
 if __name__=="__main__":

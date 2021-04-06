@@ -210,10 +210,10 @@ if __name__=="__main__":
     test_loss      = tf.keras.metrics.Mean('test_loss', dtype=tf.float32)
     test_accuracy  = tf.keras.metrics.SparseCategoricalAccuracy('test_accuracy')
     # enabled beast mode debugging
-    tf.debugging.experimental.enable_dump_debug_info(
-        logdir=model_logging_debugger_path,
-        tensor_debug_mode="FULL_HEALTH",
-        circular_buffer_size=1000) # save only the last 1000 tensors
+    # tf.debugging.experimental.enable_dump_debug_info(
+    #     dump_root=model_logging_debugger_path,
+    #     tensor_debug_mode="FULL_HEALTH",
+    #     circular_buffer_size=1000) # save only the last 1000 tensors
 
 
 
@@ -286,8 +286,8 @@ if __name__=="__main__":
                 before = None
                 before = after
             
-            if step == 40:
-                break
+            # if step == 40:
+                # break
             
 
         model.save_weights(os.path.join(model_save_path,"model_epoch_{}".format(epoch)))
@@ -300,8 +300,9 @@ if __name__=="__main__":
         for step,(we_val_batch,se_val_batch,gt_val_batch) in enumerate(datasets["disease"]["validation"]):
             test_step(we_val_batch,se_val_batch,gt_val_batch)
 
-        print("Validation acc: %.4f" % (float(val_acc),))
-        print("Time taken: %.2fs" % (time.time() - start_time))
+        val_acc = test_accuracy.result()
+        print("Validation acc: {:.4}" .format(float(val_acc)))
+        print("Time taken:     {:.2}s".format(time.time() - start_time))
 
 
         # tensorboard logging stuff
@@ -312,8 +313,8 @@ if __name__=="__main__":
         with test_summary_writer.as_default():
             tf.summary.scalar('loss', test_loss.result(), step=epoch)
             tf.summary.scalar('accuracy', test_accuracy.result(), step=epoch)
-        with writer.as_default():
-          tf.summary.graph(model)
+        with graph_summary_writer.as_default():
+            tf.summary.graph(model)
 
         ## Reset metrics every epoch
         train_loss.reset_states()
