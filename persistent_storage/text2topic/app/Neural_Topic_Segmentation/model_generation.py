@@ -18,6 +18,7 @@ from tensorflow.keras.layers import LSTM,Embedding,Dense,Multiply,Bidirectional,
 from tensorflow.keras import activations
 from tensorflow import linalg
 from tensorflow.keras.utils import plot_model
+import tensorflow.keras.backend as kb
 
 class WE_SeAtt_BiLSTM(keras.layers.Layer):
     def __init__(self, output_vec_len = 300,masking_enabled=True,SeATT_enabled=True,**kwargs):
@@ -29,22 +30,28 @@ class WE_SeAtt_BiLSTM(keras.layers.Layer):
         self.lstm_0 = LSTM(
             units = output_vec_len,
             activation='tanh',
-            recurrent_activation='sigmoid', # check this
+            recurrent_activation='tanh', # check this
             return_sequences=True,
             stateful=True,
             return_state=True,
             name="lstm_0",
+            # dropout=0.2, 
+            # recurrent_dropout=0.2,
         )
         self.bilstm_0 = tf.keras.layers.Bidirectional(self.lstm_0, merge_mode='sum')
         self.lstm_1 = LSTM(
             units = output_vec_len,
             activation='tanh',
-            recurrent_activation='sigmoid', # check this
+            recurrent_activation='tanh', # check this
             return_sequences=True,
             stateful=True,
             return_state=False,
             name="lstm_1",
+            # dropout=0.2, 
+            # recurrent_dropout=0.2,
         )
+        self.dropout_0 = tf.keras.layers.Dropout(0.2)
+
         self.bilstm_1 = tf.keras.layers.Bidirectional(self.lstm_1, merge_mode='sum')
         if SeATT_enabled:
             self.sat     = custom_SAT()
@@ -57,9 +64,10 @@ class WE_SeAtt_BiLSTM(keras.layers.Layer):
             dense_out = self.dense_0(masked_input)
         else:
             dense_out = self.dense_0(input_t)
-        bilstm_0_out = self.bilstm_0(dense_out)
-        bilstm_1_out = self.bilstm_1(bilstm_0_out)
-        sat_out = self.sat(bilstm_1_out)
+        bilstm_0_out  = self.bilstm_0(dense_out)
+        bilstm_1_out  = self.bilstm_1(bilstm_0_out)
+        dropout_0_out = self.dropout_0(bilstm_1_out)
+        sat_out       = self.sat(dropout_0_out)
         return sat_out
 
 
@@ -67,7 +75,7 @@ class custom_SAT(keras.layers.Layer):
     def __init__(self, output_vec_len = 300):
         super(custom_SAT, self).__init__()
         self.dense0 = Dense(units=output_vec_len, activation=activations.tanh)
-        initializer = tf.keras.initializers.RandomUniform(minval=0., maxval=1.)
+        initializer = tf.random_normal_initializer()
         self.u_w = tf.Variable(initial_value=initializer((output_vec_len,output_vec_len,)),
                                trainable=True)
     def call(self, h_it): 
@@ -87,11 +95,13 @@ class se_comp_BiLSTM(keras.layers.Layer):
         self.lstm_0 = LSTM(
             units = lstm_units,
             activation='tanh',
-            recurrent_activation='sigmoid', # check this
+            recurrent_activation='tanh', # check this
             return_sequences=True,
             stateful=True,
             # return_state=True,
             name="lstm_0",
+            # dropout=0.2, 
+            # recurrent_dropout=0.2,
         )
         self.bilstm_0 = tf.keras.layers.Bidirectional(self.lstm_0, merge_mode='sum')
 
@@ -223,9 +233,10 @@ def build_Att_BiLSTM(
     se_out = TimeDistributed(WE_SeAtt_BiLSTM(name="self_att_bilstm_hello",masking_enabled=masking_enabled))(word2vec_input)
     bert_input = keras.Input(shape=(None,bert_embedding_length),batch_size=batch_size, dtype="float32", name="SE")
     se_bert_out = Concatenate()([bert_input,se_out])
+    dropout_out = tf.keras.layers.Dropout(0.05)(se_bert_out)
 
     lstm_units = 256
-    se_comp_bilstm1_out = se_comp_BiLSTM(lstm_units,masking_enabled=masking_enabled)(se_bert_out)
+    se_comp_bilstm1_out = se_comp_BiLSTM(lstm_units,masking_enabled=masking_enabled)(dropout_out)
 
     # create a buffer to store previous sentence encodings from this section
     # add time distributed, as it removes the None element in the lstm output, 
@@ -236,7 +247,7 @@ def build_Att_BiLSTM(
     # out = tf.concat([se_comp_bilstm1_out,sentence_encodings_stack],axis=-1)
     # se_comp_bilstm2_out = se_comp_BiLSTM(lstm_units)(out)
 
-    dense_0_out = custom_dense(output_neurons=lstm_units,name="dense_0")(se_comp_bilstm1_out)
+    dense_0_out = custom_dense(output_neurons=lstm_units*4,name="dense_0")(se_comp_bilstm1_out)
     LRe_0_out = LeakyReLU(name="LRe_0")(dense_0_out)
     dense_1_out = custom_dense(output_neurons=1,name="dense_1")(LRe_0_out)
 
@@ -244,6 +255,7 @@ def build_Att_BiLSTM(
     boundry_out_out = LeakyReLU(name="boundry_out")(dense_1_out)
 
     return [word2vec_input,bert_input],boundry_out_out
+
 
 
 if __name__=="__main__":

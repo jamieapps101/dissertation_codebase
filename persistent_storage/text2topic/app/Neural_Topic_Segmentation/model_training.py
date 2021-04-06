@@ -166,41 +166,30 @@ if __name__=="__main__":
     # Train model with manual trianing loops
     # Instantiate an optimizer.
     lr_schedule = keras.optimizers.schedules.InverseTimeDecay(
-        initial_learning_rate=1e-2,
-        decay_steps=1000,
-        decay_rate=0.8, # sweeps from 0.01 to 0.0001 over the 10 epochs
+        initial_learning_rate=0.5,
+        decay_steps=100,
+        decay_rate=0.1, # sweeps from 0.01 to 0.0001 over the 10 epochs
         staircase=False)
-    # optimizer = keras.optimizers.Adam(learning_rate=lr_schedule)
-    optimizer = keras.optimizers.Adam(learning_rate=0.001)
+    optimizer = keras.optimizers.Adam(learning_rate=lr_schedule)
+    # optimizer = keras.optimizers.Adam(learning_rate=0.001)
     # optimizer = keras.optimizers.SGD(learning_rate=0.01)
     # Instantiate a loss function.
     loss_fn = keras.losses.BinaryCrossentropy(from_logits=False)
-    # loss_fn = keras.losses.BinaryCrossentropy(from_logits=True)
-    # loss_fn = keras.losses.SparseCategoricalCrossentropy(from_logits=False)
-    # loss_fn = keras.losses.SparseCategoricalCrossentropy(from_logits=True)
 
     current_dir = "{:%m_%d_%H_%M}".format(datetime.now(timezone.utc))
     model_save_path = "/app/data/models/"+current_dir
 
     ## setup tensorboard stuff
     model_logging_path = os.path.join("/app/data/logs",current_dir)
-    model_logging_debugger_path = os.path.join(model_logging_path,"debugger")
-    model_logging_gradTape_path = os.path.join(model_logging_path,"gradient_tape")
-    # model_logging_gradTape_path_test  = os.path.join(model_logging_gradTape_path,"test")
-    # model_logging_gradTape_path_train = os.path.join(model_logging_gradTape_path,"train")
-    # model_logging_gradTape_path_graph = os.path.join(model_logging_gradTape_path,"graph")
     paths = [
         model_save_path,
         model_logging_path,
-        model_logging_gradTape_path,
-        model_logging_gradTape_path_test,
-        model_logging_gradTape_path_train,
-        model_logging_gradTape_path_graph,
-        model_logging_debugger_path,
+        # model_logging_gradTape_path,
+        # model_logging_debugger_path,
     ]
-    train_summary_writer = tf.summary.create_file_writer(model_logging_gradTape_path,name="test")
-    test_summary_writer  = tf.summary.create_file_writer(model_logging_gradTape_path,name="train")
-    graph_summary_writer = tf.summary.create_file_writer(model_logging_gradTape_path,name="graph")
+    train_summary_writer = tf.summary.create_file_writer(model_logging_path,name="train")
+    test_summary_writer  = tf.summary.create_file_writer(model_logging_path,name="test")
+    lr_summary_writer  = tf.summary.create_file_writer(model_logging_path,name="Learn-Rate")
     print("checkpoints stored in:\n\t{}".format(model_save_path))
     for path in paths:
         os.makedirs(path,exist_ok=True)
@@ -209,20 +198,13 @@ if __name__=="__main__":
     train_accuracy = tf.keras.metrics.SparseCategoricalAccuracy('train_accuracy')
     test_loss      = tf.keras.metrics.Mean('test_loss', dtype=tf.float32)
     test_accuracy  = tf.keras.metrics.SparseCategoricalAccuracy('test_accuracy')
+    learn_rate     = tf.keras.metrics.Mean('Learn-Rate', dtype=tf.float32)
     # enabled beast mode debugging
     # tf.debugging.experimental.enable_dump_debug_info(
     #     dump_root=model_logging_debugger_path,
     #     tensor_debug_mode="FULL_HEALTH",
     #     circular_buffer_size=1000) # save only the last 1000 tensors
 
-
-
-
-    # # Prepare the metrics.
-    # train_acc_metric    = keras.metrics.BinaryCrossentropy()
-    # train_loss_metric   = keras.metrics.BinaryCrossentropy()
-    # val_acc_metric      = keras.metrics.BinaryCrossentropy()
-    # val_los_metric      = keras.metrics.BinaryCrossentropy()
 
     history = pd.DataFrame({
         'validation_acc': np.array([]),
@@ -255,6 +237,10 @@ if __name__=="__main__":
 
     epochs = 10
 
+    print("initial learn rate: {}".format(optimizer.learning_rate(0)))
+
+    total_steps = 0
+
     for epoch in range(epochs):
         print("\nStart of epoch %d" % (epoch,))
         start_time = time.time()
@@ -269,6 +255,7 @@ if __name__=="__main__":
             loss_value = train_step(we_batch,se_batch,gt_batch)
             step_time = time.time()-step_start_time
             ave_step_time = (3*ave_step_time+step_time)/4
+            total_steps+=1
             # Log every 20 batches.
             if step % 20 == 0:
                 print("Step {}, \n per batch training loss: {:.8}\ntotal training samples: {},\nave step time: {:.1}s".format(step, float(loss_value),(step + 1) * batch_size, ave_step_time))
@@ -314,8 +301,11 @@ if __name__=="__main__":
         with test_summary_writer.as_default():
             tf.summary.scalar('loss', test_loss.result(), step=epoch)
             tf.summary.scalar('accuracy', test_accuracy.result(), step=epoch)
-        with graph_summary_writer.as_default():
-            tf.summary.graph(model)
+
+        with test_summary_writer.as_default():
+            tf.summary.scalar('Learn-Rate',  optimizer.learning_rate(total_steps), step=epoch)
+        # with graph_summary_writer.as_default():
+        #     tf.summary.graph(model)
 
         ## Reset metrics every epoch
         train_loss.reset_states()
