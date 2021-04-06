@@ -103,8 +103,8 @@ batch_size  = 8
 content = ["disease"]
 # content = ["disease","city"]
 types   = ["train","test","validation"]
-# items = [7,2,1]
-items = [55,16,8]
+items = [11,3,2]
+# items = [55,16,8]
 
 
 def fetch_data():
@@ -237,14 +237,15 @@ if __name__=="__main__":
             ave_step_time = (3*ave_step_time+step_time)/4
             # Log every 10 batches.
             if step % 20 == 0:
-                print("Step {}, per batch training loss: {:.6}, total training samples: {}, ave step time: {:.1}s".format(step, float(loss_value),(step + 1) * batch_size, ave_step_time))
-
-        # get a snapshot of after the epoch, and compare from[1]
-        after = model.trainable_variables
-        for b, a in zip(before, after):
-            # Make sure something changed.
-            if np.any(b.numpy() != a.numpy()):
-                print("{} has not changed".format(a.name))
+                print("Step {}, per batch training loss: {:.8}\ntotal training samples: {}, ave step time: {:.1}s\n".format(step, float(loss_value),(step + 1) * batch_size, ave_step_time))
+                # get a snapshot of after the epoch, and compare from[1]
+                after = model.trainable_variables
+                for b, a in zip(before, after):
+                    # Make sure something changed.
+                    if np.any(b.numpy() != a.numpy()):
+                        print("{} has not changed".format(a.name))
+                before = None
+                before = after
 
         model.save_weights(os.path.join(model_save_path,"model_epoch_{}".format(epoch)))
         # model.save(os.path.join(model_save_path,"model_whole_epoch_{}".format(epoch)))

@@ -68,6 +68,8 @@ def run_container(options):
     if options["container"]=="word2vec":
         command.append("-p 3030:3030")
     command.append("{}:{}".format(options["tag"],options["version"]))
+    if options["X"] is not None:
+        command.append("-e=DISPLAY=$DISPLAY --volume=\"/tmp/.X11-unix:/tmp/.X11-unix:rw\"")
     if options["script"] == "bash":
         command.append("bash")
     elif options["container"]=="word2vec" or options["container"]=="bert_as_service":
@@ -125,6 +127,8 @@ def main():
                     help='Print output of container to be run to screen')
     parser.add_argument('--dry_run', action='store_const', const=1,
                     help='Print docker command but don\'t run it')
+    parser.add_argument('-X', action='store_const', const=1,
+                    help='Pass through x display')
 
     args = vars(parser.parse_args())
 
@@ -179,6 +183,7 @@ def main():
         "interactive": args["interactive"],
         "dry_run": args["dry_run"],
         "display": args["display"],
+        "X": args["X"]
     }
 
     if parts[2] == "mosquitto":
