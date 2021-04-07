@@ -78,7 +78,6 @@ def read_tfrecord(serialized_example):
   gt = tf.reshape(gt,data_gt_shape)
   return (we,se,gt)
 
-
 def get_values(we,se,gt):
     tensor = {}
     tensor["WE"] = we
@@ -99,12 +98,12 @@ def get_split(we,se,gt):
 
 dataset_dir = "/app/data/processed/data_8/"
 batch_size  = 8
-
-content = ["disease"]
+# content = ["disease"]
+content = ["city"]
 # content = ["disease","city"]
 types   = ["train","test","validation"]
-items = [11,3,2]
-# items = [55,16,8]
+# items = [11,3,2]
+items = [55,16,8]
 
 
 def fetch_data():
@@ -121,8 +120,6 @@ def fetch_data():
             buffered_dataset = batched_dataset.prefetch(buffer_size=1) # load in 1 batch ahead of time
             datasets[c][t]   = buffered_dataset
     return datasets
-
-
 
 
 # setup training params
@@ -160,17 +157,12 @@ if __name__=="__main__":
     # load data
     datasets = fetch_data()
 
-    # Train model with manual trianing loops
+    # Train model with manual training loops
     # Instantiate an optimizer.
-    # lr_schedule = keras.optimizers.schedules.InverseTimeDecay(
-    #     initial_learning_rate=0.5,
-    #     decay_steps=50,
-    #     decay_rate=0.1,
-    #     staircase=True)
     lr_schedule = keras.optimizers.schedules.InverseTimeDecay(
-        initial_learning_rate=0.1,
-        decay_steps=100,
-        decay_rate=0.1,
+        initial_learning_rate=0.05,
+        decay_steps=500,
+        decay_rate=0.9,
         staircase=True)
     optimizer = keras.optimizers.Adam(learning_rate=lr_schedule)
     # optimizer = keras.optimizers.Adam(learning_rate=0.001)
@@ -183,10 +175,10 @@ if __name__=="__main__":
     model_save_path = "/app/data/models/"+current_dir
 
     ## setup tensorboard stuff
-    model_logging_path = os.path.join("/app/data/logs",current_dir)
+    model_logging_path       = os.path.join("/app/data/logs",current_dir)
     model_logging_path_train = os.path.join(model_logging_path,"train")
     model_logging_path_test  = os.path.join(model_logging_path,"test")
-    model_logging_path_lr  = os.path.join(model_logging_path,"lr")
+    model_logging_path_lr    = os.path.join(model_logging_path,"lr")
     paths = [
         model_save_path,
         model_logging_path,
@@ -200,17 +192,17 @@ if __name__=="__main__":
     for path in paths:
         os.makedirs(path,exist_ok=True)
     # Define our metrics
-    train_loss     = tf.keras.metrics.Mean('train_loss', dtype=tf.float32)
+    train_loss     = tf.keras.metrics.BinaryCrossentropy('train_loss', dtype=tf.float32,from_logits=True)
     train_accuracy = tf.keras.metrics.SparseCategoricalAccuracy('train_accuracy')
-    test_loss      = tf.keras.metrics.Mean('test_loss', dtype=tf.float32)
+    test_loss      = tf.keras.metrics.BinaryCrossentropy('test_loss',  dtype=tf.float32,from_logits=True)
     test_accuracy  = tf.keras.metrics.SparseCategoricalAccuracy('test_accuracy')
     learn_rate     = tf.keras.metrics.Mean('Learn-Rate', dtype=tf.float32)
-    # enabled beast mode debugging
+    
+    # enable beast mode debugging
     # tf.debugging.experimental.enable_dump_debug_info(
     #     dump_root=model_logging_debugger_path,
     #     tensor_debug_mode="FULL_HEALTH",
     #     circular_buffer_size=1000) # save only the last 1000 tensors
-
 
     history = pd.DataFrame({
         'validation_acc': np.array([]),
@@ -257,7 +249,7 @@ if __name__=="__main__":
         # Iterate over the batches of the dataset. from [1]
         step_start_time = time.time()
         ave_step_time = 0
-        for step, (we_batch,se_batch,gt_batch) in enumerate(datasets["disease"]["train"]):
+        for step, (we_batch,se_batch,gt_batch) in enumerate(datasets["city"]["train"]):
             loss_value = train_step(we_batch,se_batch,gt_batch)
             step_time = time.time()-step_start_time
             ave_step_time = (3*ave_step_time+step_time)/4
@@ -274,7 +266,9 @@ if __name__=="__main__":
                     if np.any(b.numpy() != a.numpy()):
                         print("{} has not changed".format(a.name))
                         changed_layers_count+=1
-                print("{}/{} layers with no changed weights\n".format(changed_layers_count,layers_count))
+                print("{}/{} layers with no changed weights".format(changed_layers_count,layers_count))
+                print("current lr: {:.5}".format(optimizer.learning_rate(total_steps)))
+                print("")
                 before = None
                 before = after
 
@@ -284,40 +278,39 @@ if __name__=="__main__":
                     tf.summary.scalar('loss', train_loss.result(), step=total_steps)
                     tf.summary.scalar('accuracy', train_accuracy.result(), step=total_steps)
 
-                with test_summary_writer.as_default():
-                    tf.summary.scalar('loss', test_loss.result(), step=total_steps)
-                    tf.summary.scalar('accuracy', test_accuracy.result(), step=total_steps)
-
-                with test_summary_writer.as_default():
+                with lr_summary_writer.as_default():
                     tf.summary.scalar('Learn-Rate',  optimizer.learning_rate(total_steps), step=total_steps)
 
                 ## Reset metrics every epoch
                 train_loss.reset_states()
-                test_loss.reset_states()
                 train_accuracy.reset_states()
-                test_accuracy.reset_states()
             total_steps+=1
             
 
             
             # quit after 100 batches
-            if step >= 100:
-                break
+            # if step >= 100:
+            #     break
             
         model.save_weights(os.path.join(model_save_path,"model_epoch_{}".format(epoch)))
         # model.save(os.path.join(model_save_path,"model_whole_epoch_{}".format(epoch)))
         # Display metrics at the end of each epoch.
-        train_acc = train_accuracy.result()
-        print("Training acc over epoch: {:.4}".format(float(train_acc),))
+        # train_acc = train_accuracy.result()
+        # print("Training acc over epoch: {:.4}".format(float(train_acc),))
         # Reset training metrics at the end of each epoch
         # Run a validation loop at the end of each epoch.
-        for step,(we_val_batch,se_val_batch,gt_val_batch) in enumerate(datasets["disease"]["validation"]):
+        for step,(we_val_batch,se_val_batch,gt_val_batch) in enumerate(datasets["city"]["validation"]):
             test_step(we_val_batch,se_val_batch,gt_val_batch)
 
         val_acc = test_accuracy.result()
         print("Validation acc: {:.4}" .format(float(val_acc)))
         print("Time taken:     {:.2}s".format(time.time() - start_time))
 
+        with test_summary_writer.as_default():
+            tf.summary.scalar('loss', test_loss.result(), step=total_steps)
+            tf.summary.scalar('accuracy', test_accuracy.result(), step=total_steps)
+        test_loss.reset_states()
+        test_accuracy.reset_states()
 
         
 
