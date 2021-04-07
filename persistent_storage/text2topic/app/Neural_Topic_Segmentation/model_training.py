@@ -167,29 +167,33 @@ if __name__=="__main__":
     # Instantiate an optimizer.
     lr_schedule = keras.optimizers.schedules.InverseTimeDecay(
         initial_learning_rate=0.5,
-        decay_steps=100,
-        decay_rate=0.1, # sweeps from 0.01 to 0.0001 over the 10 epochs
-        staircase=False)
+        decay_steps=50,
+        decay_rate=0.1,
+        staircase=True)
     optimizer = keras.optimizers.Adam(learning_rate=lr_schedule)
     # optimizer = keras.optimizers.Adam(learning_rate=0.001)
     # optimizer = keras.optimizers.SGD(learning_rate=0.01)
     # Instantiate a loss function.
-    loss_fn = keras.losses.BinaryCrossentropy(from_logits=False)
+    # loss_fn = keras.losses.BinaryCrossentropy(from_logits=False)
+    loss_fn = model_generation.CustomLossFunction()
 
     current_dir = "{:%m_%d_%H_%M}".format(datetime.now(timezone.utc))
     model_save_path = "/app/data/models/"+current_dir
 
     ## setup tensorboard stuff
     model_logging_path = os.path.join("/app/data/logs",current_dir)
+    model_logging_path_train = os.path.join(model_logging_path,"train")
+    model_logging_path_test  = os.path.join(model_logging_path,"test")
+    model_logging_path_lr  = os.path.join(model_logging_path,"lr")
     paths = [
         model_save_path,
         model_logging_path,
-        # model_logging_gradTape_path,
-        # model_logging_debugger_path,
+        model_logging_path_train,
+        model_logging_path_test,
     ]
-    train_summary_writer = tf.summary.create_file_writer(model_logging_path,name="train")
-    test_summary_writer  = tf.summary.create_file_writer(model_logging_path,name="test")
-    lr_summary_writer  = tf.summary.create_file_writer(model_logging_path,name="Learn-Rate")
+    train_summary_writer = tf.summary.create_file_writer(model_logging_path_train,name="train")
+    test_summary_writer  = tf.summary.create_file_writer(model_logging_path_test,name="test")
+    lr_summary_writer    = tf.summary.create_file_writer(model_logging_path_lr,name="Learn-Rate")
     print("checkpoints stored in:\n\t{}".format(model_save_path))
     for path in paths:
         os.makedirs(path,exist_ok=True)

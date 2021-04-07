@@ -30,7 +30,7 @@ class WE_SeAtt_BiLSTM(keras.layers.Layer):
         self.lstm_0 = LSTM(
             units = output_vec_len,
             activation='tanh',
-            recurrent_activation='tanh', # check this
+            recurrent_activation='sigmoid', # check this
             return_sequences=True,
             stateful=True,
             return_state=True,
@@ -42,7 +42,7 @@ class WE_SeAtt_BiLSTM(keras.layers.Layer):
         self.lstm_1 = LSTM(
             units = output_vec_len,
             activation='tanh',
-            recurrent_activation='tanh', # check this
+            recurrent_activation='sigmoid', # check this
             return_sequences=True,
             stateful=True,
             return_state=False,
@@ -95,7 +95,7 @@ class se_comp_BiLSTM(keras.layers.Layer):
         self.lstm_0 = LSTM(
             units = lstm_units,
             activation='tanh',
-            recurrent_activation='tanh', # check this
+            recurrent_activation='sigmoid', # check this
             return_sequences=True,
             stateful=True,
             # return_state=True,
@@ -257,6 +257,23 @@ def build_Att_BiLSTM(
     return [word2vec_input,bert_input],boundry_out_out
 
 
+# Loss func:
+# L = -sum_{i=1}^{k-1} [y_i*log(p_i)+(1-y_i)*log(1-p_i)]  
+
+class CustomLossFunction(tf.keras.losses.Loss):
+  def call(self, y_true, y_pred):
+    y_p = tf.convert_to_tensor(y_pred)
+    # y_i = tf.convert_to_tensor(y_true)
+    y_i = tf.cast(y_true, y_pred.dtype)
+
+    loss_samples_features = tf.math.add(tf.multiply(y_i,tf.math.log(y_p)),tf.multiply((1-y_i),tf.math.log(1-y_p)))
+
+    # this is summed to produce a loss for each sample
+    loss_sample           = tf.math.reduce_sum(loss_samples_features, axis=-1) 
+
+    # make it negative to match the paper
+    loss = -loss_sample
+    return loss
 
 if __name__=="__main__":
     print("Running from {}".format(__file__))
