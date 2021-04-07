@@ -249,12 +249,18 @@ def build_Att_BiLSTM(
 
     dense_0_out = custom_dense(output_neurons=lstm_units*4,name="dense_0")(se_comp_bilstm1_out)
     LRe_0_out = LeakyReLU(name="LRe_0")(dense_0_out)
-    dense_1_out = custom_dense(output_neurons=1,name="dense_1")(LRe_0_out)
 
-    # boundry_out_out = Softmax(name="boundry_out",axis=-2)(dense_1_out)
-    boundry_out_out = LeakyReLU(name="boundry_out")(dense_1_out)
+    # we have two outputs as one indicates a boundry and the other no boundry
+    dense_1_out = custom_dense(output_neurons=2,name="dense_1")(LRe_0_out)
+    # using the two prev outputs, we now have a proper logit function
+    # whos output is a probability
+    boundry_out = Softmax(name="boundry_out",axis=-1)(dense_1_out)
+    # boundry_out_out = LeakyReLU(name="boundry_out")(dense_1_out)
 
-    return [word2vec_input,bert_input],boundry_out_out
+    # <batch_size>,len,out
+    model_out = tf.expand_dims(boundry_out[:,:,0],axis=-1)
+
+    return [word2vec_input,bert_input],model_out
 
 
 # Loss func:
@@ -266,7 +272,11 @@ class CustomLossFunction(tf.keras.losses.Loss):
     # y_i = tf.convert_to_tensor(y_true)
     y_i = tf.cast(y_true, y_pred.dtype)
 
-    loss_samples_features = tf.math.add(tf.multiply(y_i,tf.math.log(y_p)),tf.multiply((1-y_i),tf.math.log(1-y_p)))
+    a = tf.multiply(y_i,tf.math.log(y_p))
+    b = tf.multiply((1-y_i),tf.math.log(1-y_p))
+    c = tf.math.add(a,b)
+
+    loss_samples_features = c
 
     # this is summed to produce a loss for each sample
     loss_sample           = tf.math.reduce_sum(loss_samples_features, axis=-1) 
