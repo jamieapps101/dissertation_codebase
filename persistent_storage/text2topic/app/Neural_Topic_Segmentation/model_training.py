@@ -284,6 +284,19 @@ if __name__=="__main__":
                 ## Reset metrics every epoch
                 train_loss.reset_states()
                 train_accuracy.reset_states()
+            
+            # run validation every 1000 steps
+            if step % 1000 == 0:
+                for step,(we_val_batch,se_val_batch,gt_val_batch) in enumerate(datasets["city"]["validation"]):
+                    test_step(we_val_batch,se_val_batch,gt_val_batch)
+                val_acc = test_accuracy.result()
+                print("Validation acc: {:.4}" .format(float(val_acc)))
+                # print("Time taken:     {:.2}s".format(time.time() - start_time))
+                with test_summary_writer.as_default():
+                    tf.summary.scalar('loss', test_loss.result(), step=total_steps)
+                    tf.summary.scalar('accuracy', test_accuracy.result(), step=total_steps)
+                test_loss.reset_states()
+                test_accuracy.reset_states()
             total_steps+=1
             
 
@@ -301,16 +314,15 @@ if __name__=="__main__":
         # Run a validation loop at the end of each epoch.
         for step,(we_val_batch,se_val_batch,gt_val_batch) in enumerate(datasets["city"]["validation"]):
             test_step(we_val_batch,se_val_batch,gt_val_batch)
-
         val_acc = test_accuracy.result()
         print("Validation acc: {:.4}" .format(float(val_acc)))
-        print("Time taken:     {:.2}s".format(time.time() - start_time))
-
+        # print("Time taken:     {:.2}s".format(time.time() - start_time))
         with test_summary_writer.as_default():
             tf.summary.scalar('loss', test_loss.result(), step=total_steps)
             tf.summary.scalar('accuracy', test_accuracy.result(), step=total_steps)
         test_loss.reset_states()
         test_accuracy.reset_states()
+        
 
         
 
