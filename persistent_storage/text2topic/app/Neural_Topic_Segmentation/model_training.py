@@ -157,25 +157,27 @@ def get_model(load_weights_from=None,masking_enabled=True):
     
 
 if __name__=="__main__":
-    
-
-
     # load data
     datasets = fetch_data()
 
     # Train model with manual trianing loops
     # Instantiate an optimizer.
+    # lr_schedule = keras.optimizers.schedules.InverseTimeDecay(
+    #     initial_learning_rate=0.5,
+    #     decay_steps=50,
+    #     decay_rate=0.1,
+    #     staircase=True)
     lr_schedule = keras.optimizers.schedules.InverseTimeDecay(
-        initial_learning_rate=0.5,
-        decay_steps=50,
+        initial_learning_rate=0.1,
+        decay_steps=100,
         decay_rate=0.1,
         staircase=True)
     optimizer = keras.optimizers.Adam(learning_rate=lr_schedule)
     # optimizer = keras.optimizers.Adam(learning_rate=0.001)
     # optimizer = keras.optimizers.SGD(learning_rate=0.01)
     # Instantiate a loss function.
-    # loss_fn = keras.losses.BinaryCrossentropy(from_logits=False)
-    loss_fn = model_generation.CustomLossFunction()
+    loss_fn = keras.losses.BinaryCrossentropy(from_logits=True)
+    # loss_fn = model_generation.CustomLossFunction()
 
     current_dir = "{:%m_%d_%H_%M}".format(datetime.now(timezone.utc))
     model_save_path = "/app/data/models/"+current_dir
@@ -259,7 +261,6 @@ if __name__=="__main__":
             loss_value = train_step(we_batch,se_batch,gt_batch)
             step_time = time.time()-step_start_time
             ave_step_time = (3*ave_step_time+step_time)/4
-            total_steps+=1
             # Log every 20 batches.
             if step % 20 == 0:
                 print("Step {}, \n per batch training loss: {:.8}\ntotal training samples: {},\nave step time: {:.1}s".format(step, float(loss_value),(step + 1) * batch_size, ave_step_time))
@@ -276,12 +277,33 @@ if __name__=="__main__":
                 print("{}/{} layers with no changed weights\n".format(changed_layers_count,layers_count))
                 before = None
                 before = after
-            
-            # quit after 100 batches
-            # if step >= 100:
-            #     break
+
+                # log every 20 steps
+                # tensorboard logging stuff
+                with train_summary_writer.as_default():
+                    tf.summary.scalar('loss', train_loss.result(), step=total_steps)
+                    tf.summary.scalar('accuracy', train_accuracy.result(), step=total_steps)
+
+                with test_summary_writer.as_default():
+                    tf.summary.scalar('loss', test_loss.result(), step=total_steps)
+                    tf.summary.scalar('accuracy', test_accuracy.result(), step=total_steps)
+
+                with test_summary_writer.as_default():
+                    tf.summary.scalar('Learn-Rate',  optimizer.learning_rate(total_steps), step=total_steps)
+
+                ## Reset metrics every epoch
+                train_loss.reset_states()
+                test_loss.reset_states()
+                train_accuracy.reset_states()
+                test_accuracy.reset_states()
+            total_steps+=1
             
 
+            
+            # quit after 100 batches
+            if step >= 100:
+                break
+            
         model.save_weights(os.path.join(model_save_path,"model_epoch_{}".format(epoch)))
         # model.save(os.path.join(model_save_path,"model_whole_epoch_{}".format(epoch)))
         # Display metrics at the end of each epoch.
@@ -297,26 +319,7 @@ if __name__=="__main__":
         print("Time taken:     {:.2}s".format(time.time() - start_time))
 
 
-        # tensorboard logging stuff
-        with train_summary_writer.as_default():
-            tf.summary.scalar('loss', train_loss.result(), step=epoch)
-            tf.summary.scalar('accuracy', train_accuracy.result(), step=epoch)
-
-        with test_summary_writer.as_default():
-            tf.summary.scalar('loss', test_loss.result(), step=epoch)
-            tf.summary.scalar('accuracy', test_accuracy.result(), step=epoch)
-
-        with test_summary_writer.as_default():
-            tf.summary.scalar('Learn-Rate',  optimizer.learning_rate(total_steps), step=epoch)
-        # with graph_summary_writer.as_default():
-        #     tf.summary.graph(model)
-
-        ## Reset metrics every epoch
-        train_loss.reset_states()
-        test_loss.reset_states()
-        train_accuracy.reset_states()
-        test_accuracy.reset_states()
-
+        
 
 
 

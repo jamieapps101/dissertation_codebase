@@ -251,16 +251,16 @@ def build_Att_BiLSTM(
     LRe_0_out = LeakyReLU(name="LRe_0")(dense_0_out)
 
     # we have two outputs as one indicates a boundry and the other no boundry
-    dense_1_out = custom_dense(output_neurons=2,name="dense_1")(LRe_0_out)
+    dense_1_out = custom_dense(output_neurons=1,name="dense_1",activation=activations.sigmoid)(LRe_0_out)
     # using the two prev outputs, we now have a proper logit function
-    # whos output is a probability
-    boundry_out = Softmax(name="boundry_out",axis=-1)(dense_1_out)
-    # boundry_out_out = LeakyReLU(name="boundry_out")(dense_1_out)
+    # # whos output is a probability
+    # boundry_out = Softmax(name="boundry_out",axis=-1)(dense_1_out)
+    # # boundry_out_out = LeakyReLU(name="boundry_out")(dense_1_out)
 
-    # <batch_size>,len,out
-    model_out = tf.expand_dims(boundry_out[:,:,0],axis=-1)
+    # # <batch_size>,len,out
+    # model_out = tf.expand_dims(boundry_out[:,:,0],axis=-1)
 
-    return [word2vec_input,bert_input],model_out
+    return [word2vec_input,bert_input],dense_1_out
 
 
 # Loss func:
