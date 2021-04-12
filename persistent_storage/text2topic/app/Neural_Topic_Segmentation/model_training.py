@@ -160,9 +160,9 @@ if __name__=="__main__":
     # Train model with manual training loops
     # Instantiate an optimizer.
     lr_schedule = keras.optimizers.schedules.InverseTimeDecay(
-        initial_learning_rate=0.05,
-        decay_steps=500,
-        decay_rate=0.9,
+        initial_learning_rate=0.001,
+        decay_steps=10000,
+        decay_rate=0.5,
         staircase=True)
     optimizer = keras.optimizers.Adam(learning_rate=lr_schedule)
     # optimizer = keras.optimizers.Adam(learning_rate=0.001)
@@ -192,10 +192,10 @@ if __name__=="__main__":
     for path in paths:
         os.makedirs(path,exist_ok=True)
     # Define our metrics
-    train_loss     = tf.keras.metrics.BinaryCrossentropy('train_loss', dtype=tf.float32,from_logits=True)
     train_accuracy = tf.keras.metrics.SparseCategoricalAccuracy('train_accuracy')
-    test_loss      = tf.keras.metrics.BinaryCrossentropy('test_loss',  dtype=tf.float32,from_logits=True)
     test_accuracy  = tf.keras.metrics.SparseCategoricalAccuracy('test_accuracy')
+    train_loss     = tf.keras.metrics.BinaryCrossentropy('train_loss', dtype=tf.float32,from_logits=True)
+    test_loss      = tf.keras.metrics.BinaryCrossentropy('test_loss',  dtype=tf.float32,from_logits=True)
     learn_rate     = tf.keras.metrics.Mean('Learn-Rate', dtype=tf.float32)
     
     # enable beast mode debugging
@@ -220,6 +220,7 @@ if __name__=="__main__":
             loss_value = loss_fn(gt, logits)
         grads = tape.gradient(loss_value, model.trainable_weights)
         optimizer.apply_gradients(zip(grads, model.trainable_weights))
+
         train_accuracy.update_state(gt, logits)
         train_loss.update_state(gt, logits)
         return loss_value
@@ -227,8 +228,8 @@ if __name__=="__main__":
     @tf.function
     def test_step(we,se, gt):
         val_logits = model({"WE":we,"SE":se}, training=False)
-        test_loss.update_state(gt, val_logits)
         test_accuracy.update_state(gt, val_logits)
+        test_loss.update_state(gt, val_logits)
 
 
     model = get_model(masking_enabled=True)
@@ -275,7 +276,7 @@ if __name__=="__main__":
                 # log every 20 steps
                 # tensorboard logging stuff
                 with train_summary_writer.as_default():
-                    tf.summary.scalar('loss', train_loss.result(), step=total_steps)
+                    tf.summary.scalar('loss',     train_loss.result(), step=total_steps)
                     tf.summary.scalar('accuracy', train_accuracy.result(), step=total_steps)
 
                 with lr_summary_writer.as_default():
@@ -289,11 +290,11 @@ if __name__=="__main__":
             if step % 1000 == 0:
                 for step,(we_val_batch,se_val_batch,gt_val_batch) in enumerate(datasets["city"]["validation"]):
                     test_step(we_val_batch,se_val_batch,gt_val_batch)
-                val_acc = test_accuracy.result()
-                print("Validation acc: {:.4}" .format(float(val_acc)))
+                # val_acc = test_accuracy.result()
+                # print("Validation acc: {:.4}" .format(float(val_acc)))
                 # print("Time taken:     {:.2}s".format(time.time() - start_time))
                 with test_summary_writer.as_default():
-                    tf.summary.scalar('loss', test_loss.result(), step=total_steps)
+                    tf.summary.scalar('loss',     test_loss.result(), step=total_steps)
                     tf.summary.scalar('accuracy', test_accuracy.result(), step=total_steps)
                 test_loss.reset_states()
                 test_accuracy.reset_states()
@@ -314,8 +315,8 @@ if __name__=="__main__":
         # Run a validation loop at the end of each epoch.
         for step,(we_val_batch,se_val_batch,gt_val_batch) in enumerate(datasets["city"]["validation"]):
             test_step(we_val_batch,se_val_batch,gt_val_batch)
-        val_acc = test_accuracy.result()
-        print("Validation acc: {:.4}" .format(float(val_acc)))
+        # val_acc = test_accuracy.result()
+        # print("Validation acc: {:.4}" .format(float(val_acc)))
         # print("Time taken:     {:.2}s".format(time.time() - start_time))
         with test_summary_writer.as_default():
             tf.summary.scalar('loss', test_loss.result(), step=total_steps)
