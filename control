@@ -70,6 +70,7 @@ def run_container(options):
     # this passes in the sound devices into the container
     if options["container"]=="speech2text":
         command.append("--device /dev/snd:/dev/snd")
+        command.append("--group-add audio")
     command.append("{}:{}".format(options["tag"],options["version"]))
     if options["X"] is not None:
         command.append("-e=DISPLAY=$DISPLAY --volume=\"/tmp/.X11-unix:/tmp/.X11-unix:rw\"")

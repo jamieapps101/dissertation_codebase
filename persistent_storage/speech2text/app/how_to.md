@@ -1,7 +1,7 @@
 # how to run this container
 
 ```bash
-./src/app.py --Device 0
+./src/app.py realtime --Device 10
 ```
 device 0 is the first device listed by the python: 
 ```python

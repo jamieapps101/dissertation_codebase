@@ -51,6 +51,7 @@ class Audio(object):
         # if not default device
         if self.device:
             kwargs['input_device_index'] = self.device
+            print("kwargs['input_device_index']: {}".format(kwargs['input_device_index']))
         elif file is not None:
             self.chunk = 320
             self.wf = wave.open(file, 'rb')

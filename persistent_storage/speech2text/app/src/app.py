@@ -12,6 +12,7 @@ import VAD_code
 import paho.mqtt.client as mqtt
 import signal
 import sys
+import pyaudio
 
 
 # The callback for when the client receives a CONNACK response from the server.
@@ -23,16 +24,30 @@ def on_connect(client, userdata, flags, rc):
     client.subscribe("$SYS/#")
 
 # The callback for when a PUBLISH message is received from the server.
-def on_message(client, userdata, msg):
-    print(msg.topic+" "+str(msg.payload))
+# def on_message(client, userdata, msg):
+#     print(msg.topic+" "+str(msg.payload))
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Deep Speech Application')
-    parser.add_argument('Mode',   metavar='M', nargs='1')
-    parser.add_argument('--File',   metavar='F', nargs='1')
-    parser.add_argument('--Device', metavar='D', nargs='1')
+    parser.add_argument('Mode',     metavar='M', nargs=1)
+    parser.add_argument('--File',   metavar='F', nargs=1)
+    parser.add_argument('--Device', metavar='D', nargs=1,type=int)
     args = parser.parse_args()
+
+    device_index = None
+    if args.Device is None:
+        # have a look for the camera
+        a = pyaudio.PyAudio()
+        devs = [a.get_device_info_by_index(i) for i in range(a.get_device_count())]
+        for i,dev in enumerate(devs):
+            if "HD Pro Webcam" in dev["name"]:
+                device_index = i
+                print("connecting to:\n{}\n".format(dev))
+                break
+    else:  
+        device_index = args.Device[0]
+
 
     # connect to mqtt server
     client = mqtt.Client(
@@ -42,7 +57,7 @@ if __name__ == "__main__":
         transport="tcp")
 
     client.on_connect = on_connect
-    client.on_message = on_message
+    # client.on_message = on_message
     client.connect("pi4-a", 30104, 60)
     # start another thread to react to incoming messages
     client.loop_start()
@@ -50,14 +65,25 @@ if __name__ == "__main__":
     # load in DS model
     print("loading model")
     model_path = os.path.join(os.getcwd(),"models")
-    model = Model(model_path)
+    print("model_path: {}".format(model_path))
+    pb = glob.glob(model_path + "/*.pbmm")[0]
+    scorer = glob.glob(model_path + "/*.scorer")[0]
+    print("Found Model: {}".format(pb))
+    print("Found scorer: {}".format(scorer))
+    # load them in
+    print("Loading models")
+    ds = Model(pb)
+    ds.enableExternalScorer(scorer)
+
+    model = ds
 
     # Start audio with VAD
     # using default params here
     vad_audio = VAD_code.VADAudio(
-        aggressiveness=3,# [0,3], 3 filters all non-speech
-        device=args.device,
-        input_rate=16000, # mic sample rate
+        aggressiveness=0,# [0,3], 3 filters all non-speech
+        # device=None,
+        device=device_index,
+        input_rate=32000, # mic sample rate
         file=None)
 
     print("Listening (ctrl-C to exit)...")
