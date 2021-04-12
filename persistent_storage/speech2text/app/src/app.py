@@ -43,7 +43,7 @@ if __name__ == "__main__":
 
     client.on_connect = on_connect
     client.on_message = on_message
-    client.connect("mqtt.eclipse.org", 1883, 60)
+    client.connect("pi4-a", 30104, 60)
     # start another thread to react to incoming messages
     client.loop_start()
 
