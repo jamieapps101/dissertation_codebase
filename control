@@ -53,7 +53,7 @@ def run_container(options):
 
     # Then build command
     command = ["docker","run"]
-    command.append("--mount type=bind,src={},target=/app".format(   os.path.join(os.getcwd(), "persistent_storage/{}/app".format(options["container"])).replace(" ","\\ ")     ))
+    command.append("--mount type=bind,src={},target=/app".format(os.path.join(os.getcwd(), "persistent_storage/{}/app".format(options["container"])).replace(" ","\\ ")     ))
     if options["mode"] == "gpu":
         command.append("--gpus 'all,\"capabilities=compute,utility\"'")
     if options["display"] is not None or options["interactive"] is not None:
@@ -67,6 +67,9 @@ def run_container(options):
         command.append("-p 5555:5555 -p 5556:5556")
     if options["container"]=="word2vec":
         command.append("-p 3030:3030")
+    # this passes in the sound devices into the container
+    if options["container"]=="speech2text":
+        command.append("--device /dev/snd:/dev/snd")
     command.append("{}:{}".format(options["tag"],options["version"]))
     if options["X"] is not None:
         command.append("-e=DISPLAY=$DISPLAY --volume=\"/tmp/.X11-unix:/tmp/.X11-unix:rw\"")

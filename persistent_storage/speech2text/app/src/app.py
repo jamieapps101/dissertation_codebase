@@ -1,3 +1,5 @@
+#! /usr/bin/python3 -i
+
 import os
 import numpy as np
 import glob
@@ -7,6 +9,22 @@ import webrtcvad
 import time
 import argparse
 import VAD_code
+import paho.mqtt.client as mqtt
+import signal
+import sys
+
+
+# The callback for when the client receives a CONNACK response from the server.
+def on_connect(client, userdata, flags, rc):
+    print("Connected with result code "+str(rc))
+
+    # Subscribing in on_connect() means that if we lose the connection and
+    # reconnect then subscriptions will be renewed.
+    client.subscribe("$SYS/#")
+
+# The callback for when a PUBLISH message is received from the server.
+def on_message(client, userdata, msg):
+    print(msg.topic+" "+str(msg.payload))
 
 
 if __name__ == "__main__":
@@ -17,7 +35,17 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # connect to mqtt server
-    
+    client = mqtt.Client(
+        client_id="", 
+        clean_session=True, 
+        userdata=None, 
+        transport="tcp")
+
+    client.on_connect = on_connect
+    client.on_message = on_message
+    client.connect("mqtt.eclipse.org", 1883, 60)
+    # start another thread to react to incoming messages
+    client.loop_start()
 
     # load in DS model
     print("loading model")
@@ -36,6 +64,16 @@ if __name__ == "__main__":
     # get iterator to collect frames of audio data
     frames = vad_audio.vad_collector()
 
+    # setup SIGINT handler
+    def signal_handler(sig, frame):
+        global client
+        client.loop_stop()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, signal_handler)
+
+
+
     spinner = None
     stream_context = model.createStream()
     wav_data = bytearray()
@@ -43,18 +81,19 @@ if __name__ == "__main__":
     for frame in frames:
         if frame is not None:
             if spinner: spinner.start()
-            logging.debug("streaming frame")
+            # logging.debug("streaming frame")
             stream_context.feedAudioContent(np.frombuffer(frame, np.int16))
-            # if ARGS.savewav: wav_data.extend(frame)
         else:
             if spinner: spinner.stop()
-            # logging.debug("end utterence")
-            # if ARGS.savewav:
-                # vad_audio.write_wav(os.path.join(ARGS.savewav, datetime.now().strftime("savewav_%Y-%m-%d_%H-%M-%S_%f.wav")), wav_data)
-                # wav_data = bytearray()
+
+            # at the end of the activity, get the text and send it to the next node
             text = stream_context.finishStream()
-            print("Recognized: %s" % text)
+            print("Recognized: {}".format(text))
+            client.publish("speech2text/data", text)
             stream_context = model.createStream()
+
+    # end of prog, disconnect mqtt client
+    client.loop_stop()
 
 
 
