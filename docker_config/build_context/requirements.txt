@@ -5,7 +5,7 @@ librosa == 0.8
 numba
 tflearn
 matplotlib
-deepspeech==0.8.2
+#deepspeech==0.8.2
 webrtcvad
 pyqt5
 webrtcvad
