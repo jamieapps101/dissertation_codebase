@@ -261,7 +261,8 @@ if __name__=="__main__":
 
                 print("beginning sample generation")
                 # loop and keep on looping until the required number of samples
-                rand_indexes = np.array([[0,1]])
+                rand_indexes      = np.array([[0,1]])
+                prev_rand_indexes = np.array([[0,0]])
                 last_update = 0
                 while True:
                     # give indication of progress
@@ -271,6 +272,7 @@ if __name__=="__main__":
 
                     
                     # gen some random indexes
+                    prev_rand_indexes = rand_indexes
                     while True:
                         rand_indexes = np.random.randint(available_samples,size=(1,2))
                         if not np.any(np.all(index_record == rand_indexes,axis=1)):
@@ -299,6 +301,10 @@ if __name__=="__main__":
                     data_we[samples_in_buffer,0:current_sentence_len,:,:] = word2vec_encodings
                     data_se[samples_in_buffer,0:current_sentence_len,:]   = bert_encodings[:current_sentence_len]
                     data_gt[samples_in_buffer,current_sentence_len-1] = 1
+                    # account for fact that previous samples will affect current lstm state
+                    # therefore add a boundry indicator to the start of the sample
+                    if rand_indexes[0,0] != prev_rand_indexes[0,1]:
+                        data_gt[samples_in_buffer,0] = 1
                     # process second sample
                     ## get sentences
                     sentences = sent_tokenize(data[rand_indexes[0,1]]["text"])
