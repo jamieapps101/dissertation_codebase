@@ -10,15 +10,25 @@ import pandas as pd
 import numpy as np
 from scipy import spatial
 import json
+import os
 
-JSON_COMMAND_FILE_PATH = "/app/config/commands.json"
-BERT_IP                = "10.80.0.1"
-MQTT_IP                = "pi4-a"
-MQTT_IP                = "192.168.0.72"
-MQTT_PORT              = 30104
+def get_env_val(env_name,val):
+    if os.environ.get(env_name) is not None:
+        return os.environ.get(env_name)
+    else:
+        return val
 
-INCOMING_TEXT_TOPIC    = "in_topic" 
-OUTGOING_COMM_TOPIC    = "out_topic" 
+JSON_COMMAND_FILE_PATH = get_env_val("JSON_COMMAND_FILE_PATH" ,"/app/config/commands.json")
+BERT_IP                = get_env_val("BERT_IP"                ,"10.80.0.1")
+# MQTT_IP                = get_env_val("MQTT_IP"                ,"pi4-a")
+MQTT_IP                = get_env_val("MQTT_IP"                ,"192.168.0.72")
+MQTT_PORT              = get_env_val("MQTT_PORT"              ,"30104")
+INCOMING_TEXT_TOPIC    = get_env_val("INCOMING_TEXT_TOPIC"    ,"in_topic" )
+OUTGOING_COMM_TOPIC    = get_env_val("OUTGOING_COMM_TOPIC"    ,"out_topic" )
+MATCH_THRESH           = get_env_val("MATCH_THRESH"           ,"0.8")
+
+MQTT_PORT              = int(MQTT_PORT)
+MATCH_THRESH           = float(MATCH_THRESH)
 
 
 class CommandDB:
@@ -32,7 +42,6 @@ class CommandDB:
         for command_index in range(self.commands.shape[0]):
             sim = 1-spatial.distance.cosine(self.encodings[command_index],input_encoding)
             db_slice = self.commands.iloc[command_index] 
-            print("{} -- {}".format(db_slice["command"],sim))
             if sim >= self.thresh:
                 entry = {"signal":db_slice["signal"],"command":db_slice["command"],"match":sim}
                 matches = matches.append(entry,ignore_index=True)
@@ -50,23 +59,20 @@ def on_connect(client, userdata, flags, rc):
 def on_message(client, userdata, msg):
     global bert_client_connection
     global command_db
-    print("got message")
     if msg.topic == INCOMING_TEXT_TOPIC:
         print(msg.topic+" "+str(msg.payload))
         byte_string = msg.payload 
         string_string = byte_string.decode("utf-8")
         # encode topic
-        print("encoding: \"{}\"".format(string_string))
         encode = bert_client_connection.encode([string_string])
-        print("I got:\n{}".format(encode[0,:10]))
         # get cosine sims
         # get those above thresh
         matches = command_db.get_matches(encode)
-        print("matches=\n{}".format(matches))
         if matches.shape[0] < 1:
             print("no matches above thresh")
         else:
             print("best match:\n{}".format(matches.iloc[0]))
+            client.publish(OUTGOING_COMM_TOPIC,matches.iloc[0]["signal"])
 
 
 if __name__ == "__main__":
@@ -81,10 +87,8 @@ if __name__ == "__main__":
         print("could not load commands")
         exit(1)
     command_pd = pd.DataFrame.from_dict(commands_dict,orient="index")
-    print("encoding:\n{}".format(list(command_pd["command"])))
     encodings = bert_client_connection.encode(list(command_pd["command"]))
-    print("move up encoding:\n{}".format(encodings[0,:10]))
-    command_db = CommandDB(command_pd,encodings,0.5)
+    command_db = CommandDB(command_pd,encodings,MATCH_THRESH)
 
     # then activate mqtt listener
     client = mqtt.Client()
