@@ -12,3 +12,4 @@ persistent_storage/word2vec/app/data/vectors.bin
 persistent_storage/word2vec
 persistent_storage/text2topic/app/matplotlib_temp/*
 !persistent_storage/text2topic/app/matplotlib_temp/note.md
+persistent_storage/speech2text/app/data/testing/audio

@@ -241,17 +241,18 @@ def build_Att_BiLSTM(
     # create a buffer to store previous sentence encodings from this section
     # add time distributed, as it removes the None element in the lstm output, 
     # allowing the tensorss to be processed individually
-    # t_stacker = RSA_layer(window_size=5,input_units=lstm_units,batch_size=batch_size)
-    # sentence_encodings_stack = TimeDistributed(t_stacker)(se_comp_bilstm1_out)
+    t_stacker = RSA_layer(window_size=5,input_units=lstm_units,batch_size=batch_size)
+    sentence_encodings_stack = TimeDistributed(t_stacker)(se_comp_bilstm1_out)
     
-    # out = tf.concat([se_comp_bilstm1_out,sentence_encodings_stack],axis=-1)
-    # se_comp_bilstm2_out = se_comp_BiLSTM(lstm_units)(out)
+    out = tf.concat([se_comp_bilstm1_out,sentence_encodings_stack],axis=-1)
+    se_comp_bilstm2_out = se_comp_BiLSTM(lstm_units)(out)
 
-    dense_0_out = custom_dense(output_neurons=lstm_units*4,name="dense_0")(se_comp_bilstm1_out)
-    LRe_0_out = LeakyReLU(name="LRe_0")(dense_0_out)
+    dense_0_out = custom_dense(output_neurons=lstm_units*4,name="dense_0")(se_comp_bilstm2_out)
+    LRe_0_out   = LeakyReLU(name="LRe_0")(dense_0_out)
+    do_out      = Dropout(0.2)(LRe_0_out)
 
     # we have two outputs as one indicates a boundry and the other no boundry
-    dense_1_out = custom_dense(output_neurons=1,name="dense_1",activation=activations.sigmoid)(LRe_0_out)
+    dense_1_out = custom_dense(output_neurons=1,name="dense_1",activation=activations.sigmoid)(do_out)
     # using the two prev outputs, we now have a proper logit function
     # # whos output is a probability
     # boundry_out = Softmax(name="boundry_out",axis=-1)(dense_1_out)
