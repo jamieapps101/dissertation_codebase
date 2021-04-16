@@ -12,6 +12,8 @@ RUN python3 -m pip install halo
 
 RUN python3 -m pip install wave
 
+RUN apt-get install -y ffmpeg
+
 WORKDIR /app
 
 
