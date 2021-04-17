@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 tf.executing_eagerly()
 from tensorflow import keras
-from tensorflow.keras.layers import LSTM,Embedding,Dense,Multiply,Bidirectional,Softmax,Dot,Attention,MaxPooling1D,Reshape,Add,Concatenate,ConvLSTM2D,Subtract,MaxPool2D,RepeatVector,TimeDistributed,Masking,ReLU,LeakyReLU,Reshape
+from tensorflow.keras.layers import LSTM,Embedding,Dense,Multiply,Bidirectional,Softmax,Dot,Dropout,Attention,MaxPooling1D,Reshape,Add,Concatenate,ConvLSTM2D,Subtract,MaxPool2D,RepeatVector,TimeDistributed,Masking,ReLU,LeakyReLU,Reshape
 from tensorflow.keras import activations
 from tensorflow import linalg
 from tensorflow.keras.utils import plot_model
@@ -241,11 +241,12 @@ def build_Att_BiLSTM(
     # create a buffer to store previous sentence encodings from this section
     # add time distributed, as it removes the None element in the lstm output, 
     # allowing the tensorss to be processed individually
-    t_stacker = RSA_layer(window_size=5,input_units=lstm_units,batch_size=batch_size)
-    sentence_encodings_stack = TimeDistributed(t_stacker)(se_comp_bilstm1_out)
+    # t_stacker = RSA_layer(window_size=5,input_units=lstm_units,batch_size=batch_size)
+    # sentence_encodings_stack = TimeDistributed(t_stacker)(se_comp_bilstm1_out)
     
-    out = tf.concat([se_comp_bilstm1_out,sentence_encodings_stack],axis=-1)
-    se_comp_bilstm2_out = se_comp_BiLSTM(lstm_units)(out)
+    # out = tf.concat([se_comp_bilstm1_out,sentence_encodings_stack],axis=-1)
+    # se_comp_bilstm2_out = se_comp_BiLSTM(lstm_units)(out)
+    se_comp_bilstm2_out = se_comp_BiLSTM(lstm_units)(se_comp_bilstm1_out)
 
     dense_0_out = custom_dense(output_neurons=lstm_units*4,name="dense_0")(se_comp_bilstm2_out)
     LRe_0_out   = LeakyReLU(name="LRe_0")(dense_0_out)

@@ -347,6 +347,7 @@ if __name__=="__main__":
                         print("writing batch number {} to file:\n\t{}".format(buffers_written,fn))
                         # slices required here as we don't want any zero padding being carried into the training data
                         write_datasets_zipped2(data_we[:samples_in_buffer],data_se[:samples_in_buffer],data_gt[:samples_in_buffer],fn)
+
                         # reset data valirables
                         samples_in_buffer = 0
                         buffers_written += 1
@@ -355,6 +356,10 @@ if __name__=="__main__":
                         data_se = np.zeros([actual_buffer_length,max_sentences_per_sample,bert_encoding_len]) 
                         data_gt = np.zeros([actual_buffer_length,max_sentences_per_sample,1])
                     if index_record.shape[0] >= samples_per_set[c_index][d_index]:
+                        # write out record of which sentences were used
+                        fn = content[c_index]+"_"+datasets[d_index]+"_{}.csv".format(buffers_written)
+                        path   = os.path.join(dataset_dir, fn)
+                        np.savetxt(path,index_record,delimiter=',')
                         print("exiting loop")
                         break
 

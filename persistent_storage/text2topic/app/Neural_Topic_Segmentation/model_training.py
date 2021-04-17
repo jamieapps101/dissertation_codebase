@@ -96,7 +96,7 @@ def get_split(we,se,gt):
     tensor["boundry_out"] = gt
     return tensor
 
-dataset_dir = "/app/data/processed/data_8/"
+dataset_dir = "/app/data/processed/data_9/"
 batch_size  = 8
 # content = ["disease"]
 content = ["city"]
