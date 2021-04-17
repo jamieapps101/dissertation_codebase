@@ -29,13 +29,14 @@ def get_words(sentence_node,sentence_index,paragraph_index,article_title):
             word_start = int(word_node.childNodes[1].attributes["start"].value)
             word_end   = int(word_node.childNodes[1].attributes["end"].value)
         words.append({
-            "article_title": article_title,
-            "paragraph_index":paragraph_index,
-            "sentence_index":sentence_index,
-            "word_index":node_index,
-            "word_text":word_text,
-            "word_start":word_start,
-            "word_end":word_end,
+            "article_title":   article_title,
+            "paragraph_index": paragraph_index,
+            "sentence_index":  sentence_index,
+            "word_index":      node_index,
+            "word_text":       word_text,
+            "word_start":      word_start,
+            "word_end":        word_end,
+            "is_command":      False
         })
     return words
 
@@ -77,14 +78,14 @@ def get_intro_sections(xml_data):
 CONFIG_PATH    = "/app/data/preprocessing_config.json"
 SEGMENT_DATA_PATH      = "/app/data/unprocessed/spoken_wikipedia/english"
 # SILENCE_THRESH = -16 # in dBFS
-SILENCE_THRESH = -20 # in dBFS
+SILENCE_THRESH = -35 # in dBFS
 PAUSE_THRESH   = 500 # ms
 
 COMMAND_DATA_PATH = "/app/data/unprocessed/fluent_speech_commands_dataset/"
 SUMMARY_STATS_PATH = os.path.join(COMMAND_DATA_PATH,"data")
 WAV_PATH = COMMAND_DATA_PATH
 
-PROCESSED_DATA_PATH =  "/app/data/unprocessed/"
+PROCESSED_DATA_PATH =  "/app/data/processed/"
 
 def get_command_segment_paths(configs):
     paths = pd.read_csv(os.path.join(SUMMARY_STATS_PATH,"train_data.csv"))
@@ -117,33 +118,68 @@ if __name__=="__main__":
     command_data = get_command_segment_paths(config["command_segments"])
     available_commands = command_data["transcription"].unique()
     total_commands = command_data.shape[0]
+
+    data_structure = pd.DataFrame(data={
+        "sample_index": [],
+        "subject":      [],
+        "action":       [],
+        "object":       [],
+        "location":     [],
+        "text":         []
+    })
     
     subj_index = 0
     max_subj = len(config["wiki_segments"])
+    total_samples = 0
     # for each audio clip
     while True:
         subj_name = config["wiki_segments"][subj_index]
+        print("Generating sample {}, using subj of {}".format(subj_index,subj_name))
         # load in audio track
-        print("loading audio... ",end="")
+        print("\tloading audio... ")
         subj_path = os.path.join(SEGMENT_DATA_PATH,subj_name)
-        ogg_path = os.path.join(subj_path,"audio.ogg")
+        subj_path_contents = os.listdir(subj_path)
+        if "audio.ogg" in subj_path_contents:
+            ogg_path = os.path.join(subj_path,"audio.ogg")
+        else:
+            ogg_path = os.path.join(subj_path,"audio1.ogg")
+
         segment_audio = AudioSegment.from_file(ogg_path)
-        print("done")
+        print("\t\t\tdone")
+
+
+        # load in transcript
+        print("\tprocessing transcipt... ")
+        xml_path  = os.path.join(subj_path,"aligned.swc") 
+        xml_data = None
+        with open(xml_path, "r") as fp:
+            xml_data = minidom.parse(fp)
+        words = get_intro_sections(xml_data)
+        df = pd.DataFrame.from_records(words)
+        print("\t\t\tdone")
+
+        # trim segment audio to get only summary section
+        summary_start_time = df[df["word_end"]!=-1]["word_end"].iloc[0]  - 3000 # add 3 seconds onto each end, as there is some error in this 
+        summary_end_time   = df[df["word_end"]!=-1]["word_end"].iloc[-1] + 3000
+        segment_audio = segment_audio[summary_start_time:summary_end_time]
+
         # get all quiet points
-        print("scanning for quiet points... ",end="")
+        print("\tscanning for quiet points... ")
         q_points = silence.detect_silence(segment_audio,
                 min_silence_len=PAUSE_THRESH,
                 silence_thresh=SILENCE_THRESH,
-                seek_step = 1) # size of step to check for silence, in ms
+                seek_step = 5) # size of step to check for silence, in ms
         
-        if len(q_points) == 1:
-            print("\nerror, could not find silent point in {} section, skipping".format(subj_name))
+        if len(q_points) <2:
+            print("\n\terror, could not find silent point in {} section, skipping".format(subj_name))
+            subj_index+=1
             continue
-        print("done")
+        print("\t\t\tdone")
 
-        print("Picking command, and inserting... ",end="")
+        print("\t I found {} quiet points".format(len(q_points)))
+        print("\tPicking command, and inserting... ")
         # pick a random one
-        rand_insert_index = np.random.randint(len(q_points))
+        rand_insert_index = np.random.randint(len(q_points)-1)
         # pick a random command sample
         rand_command_index = np.random.randint(total_commands)
         command = command_data.iloc[rand_command_index]
@@ -151,28 +187,75 @@ if __name__=="__main__":
         command_audio = AudioSegment.from_file(file_path)
         # insert the command sample
         seg_beginning = segment_audio[:q_points[rand_insert_index][1]]
-        seg_end = segment_audio[:q_points[rand_insert_index+1][0]]
+        seg_end = segment_audio[q_points[rand_insert_index+1][0]:]
         new_seg = seg_beginning+command_audio+seg_end
         # write out audio data
         new_seg.export(os.path.join(PROCESSED_DATA_PATH,"sample_{}.mp3".format(subj_index)), format="mp3")
-        print("done")
-        
-        
+        print("\t\t\tdone")
+
+
+        print("\tinserted command at {}ms".format(q_points[rand_insert_index][1]))
         # write out ground true text about sample
-        print("processing transcipt... ",end="")
-        xml_path  = os.path.join(subj_path,"aligned.swc") 
-        xml_data = None
-        with open(xml_path, "r") as fp:
-            xml_data = minidom.parse(fp)
+        
+        print("\tAltering transcript... ")
+        #  split segment text in half
+        seg_1 =    df[ df["word_end"]   < q_points[rand_insert_index][1]   ]
+        seg_2 =    df[ df["word_start"] > q_points[rand_insert_index+1][0] ]
+        # now insert the words:
+        command_string = command["transcription"]
+        print("inserted command string: ",end="")
+        for word in command_string.split():
+            print(word+" ",end="")
+            new_row = {
+                    "article_title":   0,
+                    "paragraph_index": 0,
+                    "sentence_index":  0,
+                    "word_index":      0,
+                    "word_text":       word, 
+                    "word_start":      0,
+                    "word_end":        0,
+                    "is_command":      True
+                }
+            seg_1 = seg_1.append(new_row,ignore_index=True)
+        print("")
+        in_command = False
+        # and recombine segments
+        text_data = seg_1.append(seg_2,ignore_index=True)
+        transcript_path = os.path.join(PROCESSED_DATA_PATH,"sample_{}.txt".format(subj_index))
+        with open(transcript_path, "w") as fp:
+            for row in text_data.iterrows():
+                word = row[1]["word_text"]
+                if row[1]["is_command"] == True and in_command==False:
+                    in_command=True
+                    fp.write("<command>")
+                filtered_word = ''.join(filter(str.isalpha, word))
+                if len(filtered_word)>0:
+                    fp.write(filtered_word + " ")
+                if row[1]["is_command"] == False and in_command==True:
+                    in_command=False
+                    fp.write("</command>")
 
-        words = get_intro_sections(xml_data)
+        print("\t\t\tdone")
 
-        df = pd.DataFrame.from_records(words)
+        data_structure = data_structure.append({
+                "sample_index": total_samples,
+                "subject":      subj_name,
+                "action":       command["action"],
+                "object":       command["object"],
+                "location":     command["location"],
+                "text":         command["transcription"]
+            },ignore_index=True)
 
-        print("done")
+        print("\tfinished sample {}".format(subj_index))
 
-
-        if subj_index == config["total_samples"]:
-            break
         subj_index+=1
+        total_samples+=1
+        if total_samples == config["total_samples"]:
+            break
+        if subj_index>=len(config["wiki_segments"]):
+            subj_index -= len(config["wiki_segments"])
+            
         print("\n")
+    print("completed sampling")
+    summary_path = os.path.join(PROCESSED_DATA_PATH,"summary.csv")
+    data_structure.to_csv(summary_path)
