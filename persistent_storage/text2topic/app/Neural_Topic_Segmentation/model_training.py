@@ -96,7 +96,7 @@ def get_split(we,se,gt):
     tensor["boundry_out"] = gt
     return tensor
 
-dataset_dir = "/app/data/processed/data_8/"
+dataset_dir = "/app/data/processed/data_9/"
 batch_size  = 8
 # content = ["disease"]
 content = ["city"]
@@ -192,8 +192,8 @@ if __name__=="__main__":
     for path in paths:
         os.makedirs(path,exist_ok=True)
     # Define our metrics
-    train_accuracy = tf.keras.metrics.SparseCategoricalAccuracy('train_accuracy')
-    test_accuracy  = tf.keras.metrics.SparseCategoricalAccuracy('test_accuracy')
+    train_accuracy = tf.keras.metrics.SparseCategoricalAccuracy('train_accuracy',from_logits=True)
+    test_accuracy  = tf.keras.metrics.SparseCategoricalAccuracy('test_accuracy',from_logits=True)
     train_loss     = tf.keras.metrics.BinaryCrossentropy('train_loss', dtype=tf.float32,from_logits=True)
     test_loss      = tf.keras.metrics.BinaryCrossentropy('test_loss',  dtype=tf.float32,from_logits=True)
     learn_rate     = tf.keras.metrics.Mean('Learn-Rate', dtype=tf.float32)
