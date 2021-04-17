@@ -1,5 +1,53 @@
 {
-    "files": [
-        
-    ]
+    "wiki_segments":[
+        "YouTube"
+    ],
+    "command_segments": [
+        {
+            "action":   "increase",
+            "object":   "heat",
+            "location": "none"
+        },
+        {
+            "action":   "decrease",
+            "object":   "heat",
+            "location": "none"
+        },
+        {
+            "action":   "activate",
+            "object":   "lights",
+            "location": "none"
+        },
+        {
+            "action":   "deactivate",
+            "object":   "lights",
+            "location": "none"
+        },
+        {
+            "action":   "activate",
+            "object":   "music",
+            "location": "none"
+        },
+        {
+            "action":   "change language",
+            "object":   "english",
+            "location": "none"
+        },
+        {
+            "action":   "change language",
+            "object":   "chinese",
+            "location": "none"
+        },
+        {
+            "action":   "change language",
+            "object":   "german",
+            "location": "none"
+        },
+        {
+            "action":   "change language",
+            "object":   "kerean",
+            "location": "none"
+        }
+    ],
+    "total_samples": 200
 }
