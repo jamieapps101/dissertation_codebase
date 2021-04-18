@@ -3,6 +3,7 @@
 import numpy as np
 np.set_printoptions(edgeitems=10,linewidth=100000)
 import pandas as pd 
+import re
 
 def get_coord(a_pos,b_pos,a_len):
     return b_pos*a_len+a_pos
@@ -56,11 +57,9 @@ def perform_dijkstra(start_node,end_node,transmat):
         current_node = node_queue[0]
         node_queue = node_queue[1:]
         if current_node==end_node:
-            print("reached end node")
             break
         path_data.at[current_node,"visited"] = 1
         connected_nodes = np.argwhere(transmat[current_node,:]<np.inf)
-        # print("connected_nodes:\n{}".format(connected_nodes))
         # not sure why arg where is giving two col output here, but the -1 fixes that
         for node in connected_nodes[:,-1]:
             node_cost = path_data.at[current_node,"cost"]+transmat[current_node,node]
@@ -98,15 +97,15 @@ def get_actions(a,b,path):
         if a_pos_delta == 0:
             # no a pos change, therefore there is a b pos change
             # this is an insertion
-            instructions.append({"insert":b[b_pos_1]})
+            instructions.append({"key":"insert","value":b[b_pos_1]})
         elif b_pos_delta == 0:
             # no b pos change, therefore there is an a pos change
             # this is a deletion
-            instructions.append({"delete":a[a_pos_1]})
+            instructions.append({"key":"delete","value":a[a_pos_1]})
         else:
             # both a and b pos have changed, therefore no 
             # insertion or deletion
-            instructions.append({"keep":b[b_pos_1]})
+            instructions.append({"key":"keep","value":b[b_pos_1]})
     return instructions
 
 
@@ -119,36 +118,38 @@ def myers_alg(a,b):
 
     # now perform dijkstras alg for going from top right pos (0,0) to bottom
     # right graph node (n,m)
-    print(transition_mat)
-
-    
-
-
-
-if __name__=="__main__":
-    print("testing")
-
-    # transmat = np.array([
-    #     [np.inf,2,7,np.inf,np.inf],
-    #     [np.inf,np.inf,3,8,5],
-    #     [np.inf,2,np.inf,1,np.inf,],
-    #     [np.inf,np.inf,np.inf,np.inf,4],
-    #     [np.inf,np.inf,np.inf,5,np.inf,],
-    # ])
-    # start_node = 0
-    # end_node   = 24
-    # path_data = get_shortest_path(start_node,end_node,transmat)
-    # print("path_data:\n{}".format(path_data))
-
-    a = [1,2,3]
-    b = [2,1,2,1]
-    transition_mat = gen_transition_mat(a,b)
+    gen_transition_mat(a,b)
     start_node     = 0
     end_node       = (len(a)+1)*(len(b)+1)-1
-    # get_coord(len(a)-1,len(b)-1,len(a))
     path = get_shortest_path(start_node,end_node,transition_mat)
     actions = get_actions(a,b,path)
+    return actions
+
+def encode_words(word_table, words):
+    return [np.argwhere(word_table==word)[0,0] for word in words]
+
+def decode_words(word_table, enc_words):
+    return [word_table[val] for val in enc_words]
+
+if __name__=="__main__":
+    a = "mary had a little lamb it was very fluffy"
+    b = "mark had a mouldy tin of baked beans they were very fluffy"
+
+    # convert to unique identifers
+    words_raw = a.split()+b.split()
+    word_table = pd.unique(words_raw)
+    a_encoded = encode_words(word_table,a.split())
+    b_encoded = encode_words(word_table,b.split())
+
+    actions = myers_alg(a_encoded,b_encoded)
     for action in actions:
-        print(action)
+        # print(action)
+        if action["key"] == "keep":
+            print(decode_words(word_table,[action["value"]])[0])
+        if action["key"] == "delete":
+            print("-- " + decode_words(word_table,[action["value"]])[0])
+        if action["key"] == "insert":
+            print("++ " + decode_words(word_table,[action["value"]])[0])
+        
 
     
