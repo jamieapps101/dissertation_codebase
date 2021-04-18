@@ -131,17 +131,19 @@ def encode_words(word_table, words):
 def decode_words(word_table, enc_words):
     return [word_table[val] for val in enc_words]
 
-if __name__=="__main__":
-    a = "mary had a little lamb it was very fluffy"
-    b = "mark had a mouldy tin of baked beans they were very fluffy"
-
+# a and b are strings, with only words, no punctuation (strings are split on
+# white space, so "hello"!="hello!")
+def myers_alg_string(a,b):
     # convert to unique identifers
     words_raw = a.split()+b.split()
     word_table = pd.unique(words_raw)
     a_encoded = encode_words(word_table,a.split())
     b_encoded = encode_words(word_table,b.split())
-
     actions = myers_alg(a_encoded,b_encoded)
+    return actions,word_table
+
+def pretty_print(a,b):
+    actions,word_table = myers_alg_string(a,b)
     for action in actions:
         # print(action)
         if action["key"] == "keep":
@@ -150,6 +152,68 @@ if __name__=="__main__":
             print("-- " + decode_words(word_table,[action["value"]])[0])
         if action["key"] == "insert":
             print("++ " + decode_words(word_table,[action["value"]])[0])
+
+def calc_WER(actions):
+    S = 0
+    D = 0
+    I = 0
+    C = 0
+    last_action = None
+    for action in actions:
+        if action["key"]=="keep": # the action must be to keep
+            C+=1
+            last_action="keep"
+        else:
+            if last_action!="subst":
+                if action["key"]=="insert":
+                    if last_action=="delete":
+                        D-=1
+                        S+=1
+                        last_action="subst"
+                    else:
+                        I+=1
+                        last_action="insert"
+
+                elif action["key"]=="delete":
+                    if last_action=="insert":
+                        I-=1
+                        S+=1
+                        last_action="subst"
+                    else:
+                        D+=1
+                        last_action="delete"
+
         
+    WER = (S+D+I)/(S+D+C)
+    print("S:{}".format(S))
+    print("D:{}".format(D))
+    print("I:{}".format(I))
+    print("C:{}".format(C))
+    return WER
+
+
+# input strings to this
+def get_WER(a,b):
+    actions,_word_table = myers_alg_string(a,b)
+    return calc_WER(actions)
+
+if __name__=="__main__":
+    a = "mary had a little lamb it was very fluffy"
+    b = "mark had a mouldy tin of baked beans they were very fluffy"
+
+    a = "we wanted people to know that we’ve got something brand new and essentially this product is uh what we call disruptive changes the way that people interact with technology"
+    b = "We wanted people to know that how to me where i know and essentially this product is what we call scripted changes the way people are rapid technology"
+
+    actions,word_table = myers_alg_string(a,b)
+    for action in actions:
+        # print(action)
+        if action["key"] == "keep":
+            print(decode_words(word_table,[action["value"]])[0])
+        if action["key"] == "delete":
+            print("-- " + decode_words(word_table,[action["value"]])[0])
+        if action["key"] == "insert":
+            print("++ " + decode_words(word_table,[action["value"]])[0])
+    WER = calc_WER(actions)
+    print("WER={}".format(WER))
 
     
