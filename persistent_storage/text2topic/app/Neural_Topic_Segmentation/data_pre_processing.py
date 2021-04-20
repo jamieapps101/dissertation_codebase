@@ -17,7 +17,7 @@ SAME_SAMPLES_AS_SOURCE = True
 
 
 # supply array of sentences
-def get_bert_encoding(data,bc,max_sentences,bert_encoding_len):
+def get_bert_encoding(data,bc):
     return bc.encode(data)
 
 # supply array of array of words
@@ -294,8 +294,7 @@ if __name__=="__main__":
                         continue
 
                     # get bert encodings
-                    bert_encodings = get_bert_encoding(sentences,bc,max_sentences_per_sample,
-                        bert_encoding_len)
+                    bert_encodings = get_bert_encoding(sentences,bc)
 
                     # send to buffer
                     data_we[samples_in_buffer,0:current_sentence_len,:,:] = word2vec_encodings
@@ -326,8 +325,7 @@ if __name__=="__main__":
                         final_rel_sentence_index = max_sentences_per_sample-current_sentence_len
 
                     # get bert encodings
-                    bert_encodings = get_bert_encoding(sentences,bc,max_sentences_per_sample,
-                        bert_encoding_len)
+                    bert_encodings = get_bert_encoding(sentences,bc)
 
                     # send to buffer
                     data_we[samples_in_buffer,current_sentence_len:final_abs_sentence_index,:,:] = word2vec_encodings[:final_rel_sentence_index]
