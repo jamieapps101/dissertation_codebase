@@ -132,7 +132,7 @@ def fetch_data():
 #     path: "",
 #     epoch: 5,
 # }
-def get_model(load_weights_from=None,masking_enabled=True):
+def get_model(load_weights_from=None,masking_enabled=True,batch_size=8):
     raw_inputs,outputs = model_generation.build_Att_BiLSTM(
         batch_size=batch_size,
         masking_enabled=masking_enabled)
@@ -204,7 +204,8 @@ if __name__=="__main__":
     current_dir = "{:%m_%d_%H_%M}".format(datetime.now(timezone.utc))
     model_save_path = "/app/data/models/"+current_dir
 
-    Pk_thresholds = np.arange(10)/10
+    # gives a step of 2.5% resolution. good to give enough range for graphing later
+    Pk_thresholds = np.arange(start=0.0,stop=1.00001,step=0.025)
 
     ## setup tensorboard stuff
     model_logging_path       = os.path.join("/app/data/logs",current_dir)
