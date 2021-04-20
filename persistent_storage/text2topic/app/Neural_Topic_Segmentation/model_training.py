@@ -151,7 +151,35 @@ def get_model(load_weights_from=None,masking_enabled=True):
             print("path:\n{}\ndoes not exist".format(load_weights_from["path"]))
     # model.compile(run_eagerly=True)
     return model
-    
+
+
+# setup a keras metrics class implementing Pk
+class PkScorer(tf.keras.metrics.Metric):
+    def __init__(self, name='PkScorer',thresh=0.5,window=5, **kwargs):
+        super(PkScorer, self).__init__(name=name, **kwargs)
+        self.thresh = thresh
+        self.score = self.add_weight(name='score', initializer='zeros')
+        self.k = window
+
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        # first pass data through threholding
+        pred_thresh = tf.cast(y_pred>self.thresh,dtype=tf.int8)
+        # now use cumsum to give segment indications
+        y_true_segments = tf.cumsum(y_true,axis=1)
+        y_pred_segments = tf.cumsum(pred_thresh,axis=1)
+
+        d_ref  = y_true_segments[:,self.k:,:]==y_true_segments[:,:-self.k,:]
+        d_hype = y_pred_segments[:,self.k:,:]==y_pred_segments[:,:-self.k,:]
+        Pk_by_element = tf.cast(d_ref!=d_hype,dtype=tf.float32)
+        Pk = tf.math.reduce_mean(Pk_by_element)
+        self.score.assign_add(Pk)
+
+    # def reset_states(self):
+    #     self.score = 0
+
+    def result(self):
+        return self.score
+
 
 if __name__=="__main__":
     # load data
@@ -161,7 +189,7 @@ if __name__=="__main__":
     # Instantiate an optimizer.
     lr_schedule = keras.optimizers.schedules.InverseTimeDecay(
         initial_learning_rate=0.001,
-        decay_steps=10000,
+        decay_steps=8000,
         decay_rate=0.5,
         staircase=True)
     optimizer = keras.optimizers.Adam(learning_rate=lr_schedule)
@@ -192,11 +220,14 @@ if __name__=="__main__":
     for path in paths:
         os.makedirs(path,exist_ok=True)
     # Define our metrics
-    train_accuracy = tf.keras.metrics.SparseCategoricalAccuracy('train_accuracy',from_logits=True)
-    test_accuracy  = tf.keras.metrics.SparseCategoricalAccuracy('test_accuracy',from_logits=True)
+    train_accuracy = tf.keras.metrics.SparseCategoricalAccuracy('train_accuracy')
+    test_accuracy  = tf.keras.metrics.SparseCategoricalAccuracy('test_accuracy')
     train_loss     = tf.keras.metrics.BinaryCrossentropy('train_loss', dtype=tf.float32,from_logits=True)
     test_loss      = tf.keras.metrics.BinaryCrossentropy('test_loss',  dtype=tf.float32,from_logits=True)
     learn_rate     = tf.keras.metrics.Mean('Learn-Rate', dtype=tf.float32)
+
+
+    Pk_metric = [(PkScorer(name='PkScorer_{}'.format(thresh),thresh=thresh,window=5),thresh) for thresh in [0.2,0.4,0.5,0.6,0.8]]
     
     # enable beast mode debugging
     # tf.debugging.experimental.enable_dump_debug_info(
@@ -230,6 +261,8 @@ if __name__=="__main__":
         val_logits = model({"WE":we,"SE":se}, training=False)
         test_accuracy.update_state(gt, val_logits)
         test_loss.update_state(gt, val_logits)
+        for Pk_inst,thresh in Pk_metric:
+            Pk_inst.update_state(gt, val_logits)
 
 
     model = get_model(masking_enabled=True)
@@ -288,7 +321,7 @@ if __name__=="__main__":
             
             # run validation every 1000 steps
             if step % 1000 == 0:
-                for step,(we_val_batch,se_val_batch,gt_val_batch) in enumerate(datasets["city"]["validation"]):
+                for step_test,(we_val_batch,se_val_batch,gt_val_batch) in enumerate(datasets["city"]["validation"]):
                     test_step(we_val_batch,se_val_batch,gt_val_batch)
                 # val_acc = test_accuracy.result()
                 # print("Validation acc: {:.4}" .format(float(val_acc)))
@@ -296,8 +329,13 @@ if __name__=="__main__":
                 with test_summary_writer.as_default():
                     tf.summary.scalar('loss',     test_loss.result(), step=total_steps)
                     tf.summary.scalar('accuracy', test_accuracy.result(), step=total_steps)
+                    for Pk_inst,thresh in Pk_metric:
+                        tf.summary.scalar('Pk_{}'.format(thresh),Pk_inst.result(), step=total_steps)
+
                 test_loss.reset_states()
                 test_accuracy.reset_states()
+                for Pk_inst,thresh in Pk_metric:
+                    Pk_inst.reset_states()           
             total_steps+=1
             
 
@@ -321,8 +359,13 @@ if __name__=="__main__":
         with test_summary_writer.as_default():
             tf.summary.scalar('loss', test_loss.result(), step=total_steps)
             tf.summary.scalar('accuracy', test_accuracy.result(), step=total_steps)
+            for Pk_inst,thresh in Pk_metric:
+                tf.summary.scalar('Pk_{}'.format(thresh),Pk_inst.result(), step=total_steps)
+
         test_loss.reset_states()
         test_accuracy.reset_states()
+        for Pk_inst,thresh in Pk_metric:
+            Pk_inst.reset_states() 
         
 
         
