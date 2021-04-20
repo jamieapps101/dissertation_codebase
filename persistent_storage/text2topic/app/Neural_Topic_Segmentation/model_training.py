@@ -116,6 +116,7 @@ def fetch_data():
             files = ["{}_{}_{}.tfrecord".format(c,t,i) for i in range(shards)]
             raw_dataset      = tf.data.TFRecordDataset([dataset_dir+file_name for file_name in files])
             mapped_dataset   = raw_dataset.map(read_tfrecord)
+            shuffled_dataset = mapped_dataset.shuffle(buffer_size=100,seed=123, reshuffle_each_iteration=True)
             batched_dataset  = mapped_dataset.batch(batch_size,drop_remainder=True)
             buffered_dataset = batched_dataset.prefetch(buffer_size=1) # load in 1 batch ahead of time
             datasets[c][t]   = buffered_dataset
@@ -171,8 +172,9 @@ class PkScorer(tf.keras.metrics.Metric):
         d_ref  = y_true_segments[:,self.k:,:]==y_true_segments[:,:-self.k,:]
         d_hype = y_pred_segments[:,self.k:,:]==y_pred_segments[:,:-self.k,:]
         Pk_by_element = tf.cast(d_ref!=d_hype,dtype=tf.float32)
-        Pk = tf.math.reduce_mean(Pk_by_element)
-        self.score.assign_add(Pk)
+        Pk_by_sample = tf.math.reduce_sum(Pk_by_element,axis=1)
+        Pk_by_batch  = tf.math.reduce_mean(Pk_by_sample)
+        self.score.assign_add(Pk_by_batch)
 
     # def reset_states(self):
     #     self.score = 0
@@ -202,20 +204,27 @@ if __name__=="__main__":
     current_dir = "{:%m_%d_%H_%M}".format(datetime.now(timezone.utc))
     model_save_path = "/app/data/models/"+current_dir
 
+    Pk_thresholds = np.arange(10)/10
+
     ## setup tensorboard stuff
     model_logging_path       = os.path.join("/app/data/logs",current_dir)
     model_logging_path_train = os.path.join(model_logging_path,"train")
     model_logging_path_test  = os.path.join(model_logging_path,"test")
     model_logging_path_lr    = os.path.join(model_logging_path,"lr")
+    Pk_logging_path         =  os.path.join(model_logging_path,"Pk")
     paths = [
         model_save_path,
         model_logging_path,
         model_logging_path_train,
         model_logging_path_test,
+        Pk_logging_path
     ]
     train_summary_writer = tf.summary.create_file_writer(model_logging_path_train,name="train")
     test_summary_writer  = tf.summary.create_file_writer(model_logging_path_test,name="test")
     lr_summary_writer    = tf.summary.create_file_writer(model_logging_path_lr,name="Learn-Rate")
+    
+    pk_summary_writer    = tf.summary.create_file_writer(Pk_logging_path,name="Pk")
+
     print("checkpoints stored in:\n\t{}".format(model_save_path))
     for path in paths:
         os.makedirs(path,exist_ok=True)
@@ -226,8 +235,7 @@ if __name__=="__main__":
     test_loss      = tf.keras.metrics.BinaryCrossentropy('test_loss',  dtype=tf.float32,from_logits=True)
     learn_rate     = tf.keras.metrics.Mean('Learn-Rate', dtype=tf.float32)
 
-
-    Pk_metric = [(PkScorer(name='PkScorer_{}'.format(thresh),thresh=thresh,window=5),thresh) for thresh in [0.2,0.4,0.5,0.6,0.8]]
+    Pk_metric = [(PkScorer(name='PkScorer',thresh=thresh,window=5),thresh) for thresh in Pk_thresholds]
     
     # enable beast mode debugging
     # tf.debugging.experimental.enable_dump_debug_info(
@@ -287,8 +295,8 @@ if __name__=="__main__":
             loss_value = train_step(we_batch,se_batch,gt_batch)
             step_time = time.time()-step_start_time
             ave_step_time = (3*ave_step_time+step_time)/4
-            # Log every 20 batches.
-            if step % 20 == 0:
+            # Log every 100 batches.
+            if step % 100 == 0:
                 print("Step {}, \n per batch training loss: {:.8}\ntotal training samples: {},\nave step time: {:.1}s".format(step, float(loss_value),(step + 1) * batch_size, ave_step_time))
                 # get a snapshot of after the epoch, and compare from[1]
                 layers_count = 0
@@ -320,17 +328,18 @@ if __name__=="__main__":
                 train_accuracy.reset_states()
             
             # run validation every 1000 steps
-            if step % 1000 == 0:
+            if step % 500 == 0:
+                print("running validation")
                 for step_test,(we_val_batch,se_val_batch,gt_val_batch) in enumerate(datasets["city"]["validation"]):
                     test_step(we_val_batch,se_val_batch,gt_val_batch)
-                # val_acc = test_accuracy.result()
-                # print("Validation acc: {:.4}" .format(float(val_acc)))
-                # print("Time taken:     {:.2}s".format(time.time() - start_time))
                 with test_summary_writer.as_default():
                     tf.summary.scalar('loss',     test_loss.result(), step=total_steps)
                     tf.summary.scalar('accuracy', test_accuracy.result(), step=total_steps)
+                
+                with pk_summary_writer.as_default():
                     for Pk_inst,thresh in Pk_metric:
-                        tf.summary.scalar('Pk_{}'.format(thresh),Pk_inst.result(), step=total_steps)
+                        print("writing pk-{:.2f} data".format(thresh))
+                        tf.summary.scalar('Pk_{:.2f}'.format(thresh),Pk_inst.result(), step=total_steps)
 
                 test_loss.reset_states()
                 test_accuracy.reset_states()
@@ -359,8 +368,10 @@ if __name__=="__main__":
         with test_summary_writer.as_default():
             tf.summary.scalar('loss', test_loss.result(), step=total_steps)
             tf.summary.scalar('accuracy', test_accuracy.result(), step=total_steps)
+
+        with pk_summary_writer.as_default():
             for Pk_inst,thresh in Pk_metric:
-                tf.summary.scalar('Pk_{}'.format(thresh),Pk_inst.result(), step=total_steps)
+                tf.summary.scalar('Pk_{:.2f}'.format(thresh),Pk_inst.result(), step=total_steps)
 
         test_loss.reset_states()
         test_accuracy.reset_states()
