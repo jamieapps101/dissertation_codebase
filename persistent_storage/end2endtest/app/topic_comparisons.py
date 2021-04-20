@@ -19,3 +19,13 @@ def get_Pk_error(ref,hyp,k):
     return score/(len(ref)-k)
     
 
+
+# sentence
+# sentence
+# sentence
+# half sentence
+# command
+# half sentence
+# sentence
+
+

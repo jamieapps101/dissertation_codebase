@@ -3,6 +3,7 @@
 import json
 import random
 import os
+import pydub
 from pydub import AudioSegment,silence
 from xml.dom import minidom
 import pandas as pd
@@ -78,7 +79,7 @@ def get_intro_sections(xml_data):
 CONFIG_PATH    = "/app/data/preprocessing_config.json"
 SEGMENT_DATA_PATH      = "/app/data/unprocessed/spoken_wikipedia/english"
 # SILENCE_THRESH = -16 # in dBFS
-SILENCE_THRESH = -35 # in dBFS
+SILENCE_THRESH = -38 # in dBFS
 PAUSE_THRESH   = 500 # ms
 
 COMMAND_DATA_PATH = "/app/data/unprocessed/fluent_speech_commands_dataset/"
@@ -143,8 +144,14 @@ if __name__=="__main__":
             ogg_path = os.path.join(subj_path,"audio.ogg")
         else:
             ogg_path = os.path.join(subj_path,"audio1.ogg")
-
-        segment_audio = AudioSegment.from_file(ogg_path)
+        
+        segment_audio = None
+        try:
+            segment_audio = AudioSegment.from_file(ogg_path)
+        except pydub.exceptions.CouldntDecodeError :
+            print("pydub decode error, skipping sample")
+            subj_index+=1
+            continue
         print("\t\t\tdone")
 
 

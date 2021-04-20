@@ -1,7 +1,9 @@
-import json,os
+import json,os,re,time
 import paho.mqtt.client as mqtt
 import threading, queue
 import pandas as pd
+from string_comparisons import get_WER
+from topic_comparisons import get_Pk_error
 
 CONFIG_PATH = "/app/testconfig.json"
 
@@ -56,7 +58,7 @@ def on_message(client, userdata, msg):
         print("Received non-data message")
 
 
-if __name__=="__main___":
+if __name__=="__main__":
     # load in text config
     config = None
     with open(CONFIG_PATH,"r") as fp:
@@ -83,23 +85,53 @@ if __name__=="__main___":
     for case in config["test_cases"]:
         # generate path information
         audio_path      = os.path.join(DATA_PATH,"{}.mp3".format(case))
-        transcript_path = os.path.join(DATA_PATH,"{}.mp3".format(case))
+        if not os.path.exists(audio_path):
+            print("could not locate:{}\n skipping test case".format(audio_path))
+            continue
+        transcript_path = os.path.join(DATA_PATH,"{}.txt".format(case))
+        if not os.path.exists(transcript_path):
+            print("could not locate:{}\n skipping test case".format(transcript_path))
+            continue
+
+        # extract data from transcript:
+        gt_transcript = None
+        with open(transcript_path,"r") as fp:
+            gt_transcript = fp.read()
+        control_tag_all   = re.compile(r"\</?command\>")
+        control_tag_command  = re.compile(r"\<command\>\w*\</command\>")
+        raw_text = re.sub(control_tag_all,"",gt_transcript)
+        topics   = re.split(control_tag_all,gt_transcript)
+        command  = re.findall(control_tag_command,gt_transcript)
+        command  = re.sub(control_tag_all,"",command)
+
 
         ## DS test
+        print("Testing DS, this may take a while")
         # message DS to start parsing the audio file:
         client.publish(DS_INPUT_TOPIC, audio_path)
+        # wait 60 seconds for DS to listen and transcribe the data
+        time.sleep(60)
         # wait for DS to respond with text
-        transcript = DS_transcripts.get()
-        # log this/process it??
+        ds_transcript = []
+        while not DS_transcripts.empty():
+            ds_transcript=DS_transcripts.get(block=False)
+        # process it
+        wer = get_WER("".join(gt_transcript),"".join(ds_transcript))
 
         ## TS test
+        print("Testing TS")
         # pass on text to topic segmenter
+        client.publish(TS_INPUT_TOPIC, ds_transcript)
         # wait for segments to be reterned
-        transcript = TS_segments.get()
-        # log this/process it??
+        topics = TS_segments.get()
+        # process it
+        Pk = get_Pk_error([],[],5)
+
+        
         
         # TC test
+        print("Testing TC")
         # pass on segments to segment comparison
         # wait for copmmrisons to be reterned
-        transcript = TC_comparisons.get()
-        # log this/process it??
+        command = TC_comparisons.get()
+        # log this

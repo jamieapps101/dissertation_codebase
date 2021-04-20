@@ -3,10 +3,7 @@
         "YouTube",
         "Australia",
         "Binary_star",
-        "Ceasium",
         "Cheese",
-        "Dinosaur",
-        "Dorset",
         "Germany",
         "House_of_York",
         "Language",
@@ -15,7 +12,9 @@
         "NASA",
         "OpenBSD",
         "Parallel_computing",
-        "Silver"
+        "Silver",
+        "Universe",
+        "Vowel"
     ],
     "command_segments": [
         {

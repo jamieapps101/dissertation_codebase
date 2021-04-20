@@ -148,7 +148,7 @@ def main():
     possible_options = {
         "function":  ["build","run","setup"],
         "mode":      ["cpu","gpu"],
-        "container": ["speech2text","text2topic","topic2command","mosquitto","general","bert_as_service","word2vec"]
+        "container": ["end2endtest","speech2text","text2topic","topic2command","mosquitto","general","bert_as_service","word2vec"]
     }
     # check args
     for i,term in enumerate(list(possible_options)):
