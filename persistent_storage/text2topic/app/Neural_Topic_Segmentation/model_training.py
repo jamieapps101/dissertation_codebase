@@ -96,7 +96,7 @@ def get_split(we,se,gt):
     tensor["boundry_out"] = gt
     return tensor
 
-dataset_dir = "/app/data/processed/data_8/"
+dataset_dir = "/app/data/processed/data_9/"
 batch_size  = 8
 # content = ["disease"]
 content = ["city"]
@@ -116,6 +116,7 @@ def fetch_data():
             files = ["{}_{}_{}.tfrecord".format(c,t,i) for i in range(shards)]
             raw_dataset      = tf.data.TFRecordDataset([dataset_dir+file_name for file_name in files])
             mapped_dataset   = raw_dataset.map(read_tfrecord)
+            shuffled_dataset = mapped_dataset.shuffle(buffer_size=100,seed=123, reshuffle_each_iteration=True)
             batched_dataset  = mapped_dataset.batch(batch_size,drop_remainder=True)
             buffered_dataset = batched_dataset.prefetch(buffer_size=1) # load in 1 batch ahead of time
             datasets[c][t]   = buffered_dataset
@@ -131,7 +132,7 @@ def fetch_data():
 #     path: "",
 #     epoch: 5,
 # }
-def get_model(load_weights_from=None,masking_enabled=True):
+def get_model(load_weights_from=None,masking_enabled=True,batch_size=8):
     raw_inputs,outputs = model_generation.build_Att_BiLSTM(
         batch_size=batch_size,
         masking_enabled=masking_enabled)
@@ -143,7 +144,10 @@ def get_model(load_weights_from=None,masking_enabled=True):
     keras.utils.plot_model(model,to_file="model_out.png",show_shapes=True,expand_nested=True)
 
     if load_weights_from is not None:
-        model_path = os.path.join(load_weights_from["path"],"model_epoch_{}".format(load_weights_from["epoch"]))
+        if load_weights_from["epoch"]!="final":
+            model_path = os.path.join(load_weights_from["path"],"model_epoch_{}".format(load_weights_from["epoch"]))
+        else:
+            model_path = os.path.join(load_weights_from["path"],"model_{}".format(load_weights_from["epoch"]))
         if os.path.exists(load_weights_from["path"]):
             print("loading model weights from:\n{}".format(model_path))
             model.load_weights(model_path)
@@ -151,7 +155,36 @@ def get_model(load_weights_from=None,masking_enabled=True):
             print("path:\n{}\ndoes not exist".format(load_weights_from["path"]))
     # model.compile(run_eagerly=True)
     return model
-    
+
+
+# setup a keras metrics class implementing Pk
+class PkScorer(tf.keras.metrics.Metric):
+    def __init__(self, name='PkScorer',thresh=0.5,window=5, **kwargs):
+        super(PkScorer, self).__init__(name=name, **kwargs)
+        self.thresh = thresh
+        self.score = self.add_weight(name='score', initializer='zeros')
+        self.k = window
+
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        # first pass data through threholding
+        pred_thresh = tf.cast(y_pred>self.thresh,dtype=tf.int8)
+        # now use cumsum to give segment indications
+        y_true_segments = tf.cumsum(y_true,axis=1)
+        y_pred_segments = tf.cumsum(pred_thresh,axis=1)
+
+        d_ref  = y_true_segments[:,self.k:,:]==y_true_segments[:,:-self.k,:]
+        d_hype = y_pred_segments[:,self.k:,:]==y_pred_segments[:,:-self.k,:]
+        Pk_by_element = tf.cast(d_ref!=d_hype,dtype=tf.float32)
+        Pk_by_sample = tf.math.reduce_sum(Pk_by_element,axis=1)
+        Pk_by_batch  = tf.math.reduce_mean(Pk_by_sample)
+        self.score.assign_add(Pk_by_batch)
+
+    # def reset_states(self):
+    #     self.score = 0
+
+    def result(self):
+        return self.score
+
 
 if __name__=="__main__":
     # load data
@@ -161,7 +194,7 @@ if __name__=="__main__":
     # Instantiate an optimizer.
     lr_schedule = keras.optimizers.schedules.InverseTimeDecay(
         initial_learning_rate=0.001,
-        decay_steps=10000,
+        decay_steps=8000,
         decay_rate=0.5,
         staircase=True)
     optimizer = keras.optimizers.Adam(learning_rate=lr_schedule)
@@ -174,20 +207,28 @@ if __name__=="__main__":
     current_dir = "{:%m_%d_%H_%M}".format(datetime.now(timezone.utc))
     model_save_path = "/app/data/models/"+current_dir
 
+    # gives a step of 2.5% resolution. good to give enough range for graphing later
+    Pk_thresholds = np.arange(start=0.0,stop=1.00001,step=0.025)
+
     ## setup tensorboard stuff
     model_logging_path       = os.path.join("/app/data/logs",current_dir)
     model_logging_path_train = os.path.join(model_logging_path,"train")
     model_logging_path_test  = os.path.join(model_logging_path,"test")
     model_logging_path_lr    = os.path.join(model_logging_path,"lr")
+    Pk_logging_path         =  os.path.join(model_logging_path,"Pk")
     paths = [
         model_save_path,
         model_logging_path,
         model_logging_path_train,
         model_logging_path_test,
+        Pk_logging_path
     ]
     train_summary_writer = tf.summary.create_file_writer(model_logging_path_train,name="train")
     test_summary_writer  = tf.summary.create_file_writer(model_logging_path_test,name="test")
     lr_summary_writer    = tf.summary.create_file_writer(model_logging_path_lr,name="Learn-Rate")
+    
+    pk_summary_writer    = tf.summary.create_file_writer(Pk_logging_path,name="Pk")
+
     print("checkpoints stored in:\n\t{}".format(model_save_path))
     for path in paths:
         os.makedirs(path,exist_ok=True)
@@ -197,6 +238,8 @@ if __name__=="__main__":
     train_loss     = tf.keras.metrics.BinaryCrossentropy('train_loss', dtype=tf.float32,from_logits=True)
     test_loss      = tf.keras.metrics.BinaryCrossentropy('test_loss',  dtype=tf.float32,from_logits=True)
     learn_rate     = tf.keras.metrics.Mean('Learn-Rate', dtype=tf.float32)
+
+    Pk_metric = [(PkScorer(name='PkScorer',thresh=thresh,window=5),thresh) for thresh in Pk_thresholds]
     
     # enable beast mode debugging
     # tf.debugging.experimental.enable_dump_debug_info(
@@ -230,6 +273,8 @@ if __name__=="__main__":
         val_logits = model({"WE":we,"SE":se}, training=False)
         test_accuracy.update_state(gt, val_logits)
         test_loss.update_state(gt, val_logits)
+        for Pk_inst,thresh in Pk_metric:
+            Pk_inst.update_state(gt, val_logits)
 
 
     model = get_model(masking_enabled=True)
@@ -254,8 +299,8 @@ if __name__=="__main__":
             loss_value = train_step(we_batch,se_batch,gt_batch)
             step_time = time.time()-step_start_time
             ave_step_time = (3*ave_step_time+step_time)/4
-            # Log every 20 batches.
-            if step % 20 == 0:
+            # Log every 100 batches.
+            if step % 100 == 0:
                 print("Step {}, \n per batch training loss: {:.8}\ntotal training samples: {},\nave step time: {:.1}s".format(step, float(loss_value),(step + 1) * batch_size, ave_step_time))
                 # get a snapshot of after the epoch, and compare from[1]
                 layers_count = 0
@@ -287,17 +332,23 @@ if __name__=="__main__":
                 train_accuracy.reset_states()
             
             # run validation every 1000 steps
-            if step % 1000 == 0:
-                for step,(we_val_batch,se_val_batch,gt_val_batch) in enumerate(datasets["city"]["validation"]):
+            if step % 500 == 0:
+                print("running validation")
+                for step_test,(we_val_batch,se_val_batch,gt_val_batch) in enumerate(datasets["city"]["validation"]):
                     test_step(we_val_batch,se_val_batch,gt_val_batch)
-                # val_acc = test_accuracy.result()
-                # print("Validation acc: {:.4}" .format(float(val_acc)))
-                # print("Time taken:     {:.2}s".format(time.time() - start_time))
                 with test_summary_writer.as_default():
                     tf.summary.scalar('loss',     test_loss.result(), step=total_steps)
                     tf.summary.scalar('accuracy', test_accuracy.result(), step=total_steps)
+                
+                with pk_summary_writer.as_default():
+                    for Pk_inst,thresh in Pk_metric:
+                        print("writing pk-{:.2f} data".format(thresh))
+                        tf.summary.scalar('Pk_{:.2f}'.format(thresh),Pk_inst.result(), step=total_steps)
+
                 test_loss.reset_states()
                 test_accuracy.reset_states()
+                for Pk_inst,thresh in Pk_metric:
+                    Pk_inst.reset_states()           
             total_steps+=1
             
 
@@ -321,8 +372,15 @@ if __name__=="__main__":
         with test_summary_writer.as_default():
             tf.summary.scalar('loss', test_loss.result(), step=total_steps)
             tf.summary.scalar('accuracy', test_accuracy.result(), step=total_steps)
+
+        with pk_summary_writer.as_default():
+            for Pk_inst,thresh in Pk_metric:
+                tf.summary.scalar('Pk_{:.2f}'.format(thresh),Pk_inst.result(), step=total_steps)
+
         test_loss.reset_states()
         test_accuracy.reset_states()
+        for Pk_inst,thresh in Pk_metric:
+            Pk_inst.reset_states() 
         
 
         

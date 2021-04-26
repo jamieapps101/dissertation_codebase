@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 tf.executing_eagerly()
 from tensorflow import keras
-from tensorflow.keras.layers import LSTM,Embedding,Dense,Multiply,Bidirectional,Softmax,Dot,Attention,MaxPooling1D,Reshape,Add,Concatenate,ConvLSTM2D,Subtract,MaxPool2D,RepeatVector,TimeDistributed,Masking,ReLU,LeakyReLU,Reshape
+from tensorflow.keras.layers import LSTM,Embedding,Dense,Multiply,Bidirectional,Softmax,Dot,Dropout,Attention,MaxPooling1D,Reshape,Add,Concatenate,ConvLSTM2D,Subtract,MaxPool2D,RepeatVector,TimeDistributed,Masking,ReLU,LeakyReLU,Reshape
 from tensorflow.keras import activations
 from tensorflow import linalg
 from tensorflow.keras.utils import plot_model
@@ -246,12 +246,14 @@ def build_Att_BiLSTM(
     
     # out = tf.concat([se_comp_bilstm1_out,sentence_encodings_stack],axis=-1)
     # se_comp_bilstm2_out = se_comp_BiLSTM(lstm_units)(out)
+    se_comp_bilstm2_out = se_comp_BiLSTM(lstm_units)(se_comp_bilstm1_out)
 
-    dense_0_out = custom_dense(output_neurons=lstm_units*4,name="dense_0")(se_comp_bilstm1_out)
-    LRe_0_out = LeakyReLU(name="LRe_0")(dense_0_out)
+    dense_0_out = custom_dense(output_neurons=lstm_units*4,name="dense_0")(se_comp_bilstm2_out)
+    LRe_0_out   = LeakyReLU(name="LRe_0")(dense_0_out)
+    do_out      = Dropout(0.2)(LRe_0_out)
 
     # we have two outputs as one indicates a boundry and the other no boundry
-    dense_1_out = custom_dense(output_neurons=1,name="dense_1",activation=activations.sigmoid)(LRe_0_out)
+    dense_1_out = custom_dense(output_neurons=1,name="dense_1",activation=activations.sigmoid)(do_out)
     # using the two prev outputs, we now have a proper logit function
     # # whos output is a probability
     # boundry_out = Softmax(name="boundry_out",axis=-1)(dense_1_out)

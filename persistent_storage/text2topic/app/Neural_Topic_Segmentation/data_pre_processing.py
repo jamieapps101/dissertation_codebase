@@ -17,7 +17,7 @@ SAME_SAMPLES_AS_SOURCE = True
 
 
 # supply array of sentences
-def get_bert_encoding(data,bc,max_sentences,bert_encoding_len):
+def get_bert_encoding(data,bc):
     return bc.encode(data)
 
 # supply array of array of words
@@ -261,7 +261,8 @@ if __name__=="__main__":
 
                 print("beginning sample generation")
                 # loop and keep on looping until the required number of samples
-                rand_indexes = np.array([[0,1]])
+                rand_indexes      = np.array([[0,1]])
+                prev_rand_indexes = np.array([[0,0]])
                 last_update = 0
                 while True:
                     # give indication of progress
@@ -271,6 +272,7 @@ if __name__=="__main__":
 
                     
                     # gen some random indexes
+                    prev_rand_indexes = rand_indexes
                     while True:
                         rand_indexes = np.random.randint(available_samples,size=(1,2))
                         if not np.any(np.all(index_record == rand_indexes,axis=1)):
@@ -292,13 +294,16 @@ if __name__=="__main__":
                         continue
 
                     # get bert encodings
-                    bert_encodings = get_bert_encoding(sentences,bc,max_sentences_per_sample,
-                        bert_encoding_len)
+                    bert_encodings = get_bert_encoding(sentences,bc)
 
                     # send to buffer
                     data_we[samples_in_buffer,0:current_sentence_len,:,:] = word2vec_encodings
                     data_se[samples_in_buffer,0:current_sentence_len,:]   = bert_encodings[:current_sentence_len]
                     data_gt[samples_in_buffer,current_sentence_len-1] = 1
+                    # account for fact that previous samples will affect current lstm state
+                    # therefore add a boundry indicator to the start of the sample
+                    if rand_indexes[0,0] != prev_rand_indexes[0,1]:
+                        data_gt[samples_in_buffer,0] = 1
                     # process second sample
                     ## get sentences
                     sentences = sent_tokenize(data[rand_indexes[0,1]]["text"])
@@ -320,8 +325,7 @@ if __name__=="__main__":
                         final_rel_sentence_index = max_sentences_per_sample-current_sentence_len
 
                     # get bert encodings
-                    bert_encodings = get_bert_encoding(sentences,bc,max_sentences_per_sample,
-                        bert_encoding_len)
+                    bert_encodings = get_bert_encoding(sentences,bc)
 
                     # send to buffer
                     data_we[samples_in_buffer,current_sentence_len:final_abs_sentence_index,:,:] = word2vec_encodings[:final_rel_sentence_index]
@@ -341,6 +345,7 @@ if __name__=="__main__":
                         print("writing batch number {} to file:\n\t{}".format(buffers_written,fn))
                         # slices required here as we don't want any zero padding being carried into the training data
                         write_datasets_zipped2(data_we[:samples_in_buffer],data_se[:samples_in_buffer],data_gt[:samples_in_buffer],fn)
+
                         # reset data valirables
                         samples_in_buffer = 0
                         buffers_written += 1
@@ -349,6 +354,10 @@ if __name__=="__main__":
                         data_se = np.zeros([actual_buffer_length,max_sentences_per_sample,bert_encoding_len]) 
                         data_gt = np.zeros([actual_buffer_length,max_sentences_per_sample,1])
                     if index_record.shape[0] >= samples_per_set[c_index][d_index]:
+                        # write out record of which sentences were used
+                        fn = content[c_index]+"_"+datasets[d_index]+"_{}.csv".format(buffers_written)
+                        path   = os.path.join(dataset_dir, fn)
+                        np.savetxt(path,index_record,delimiter=',')
                         print("exiting loop")
                         break
 
