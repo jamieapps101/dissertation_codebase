@@ -144,7 +144,10 @@ def get_model(load_weights_from=None,masking_enabled=True,batch_size=8):
     keras.utils.plot_model(model,to_file="model_out.png",show_shapes=True,expand_nested=True)
 
     if load_weights_from is not None:
-        model_path = os.path.join(load_weights_from["path"],"model_epoch_{}".format(load_weights_from["epoch"]))
+        if load_weights_from["epoch"]!="final":
+            model_path = os.path.join(load_weights_from["path"],"model_epoch_{}".format(load_weights_from["epoch"]))
+        else:
+            model_path = os.path.join(load_weights_from["path"],"model_{}".format(load_weights_from["epoch"]))
         if os.path.exists(load_weights_from["path"]):
             print("loading model weights from:\n{}".format(model_path))
             model.load_weights(model_path)
