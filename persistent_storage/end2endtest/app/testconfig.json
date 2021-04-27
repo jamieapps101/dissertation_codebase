@@ -1,0 +1,8 @@
+{
+    "test_cases": [
+        {
+            "sample_ID":"sample_0",
+            "command_ref": "turn on"
+        }
+    ]
+}

@@ -1,0 +1,27 @@
+{
+    
+    "0": {
+        "command": "move up",
+        "signal": 0
+    },
+    "1": {
+        "command": "move down",
+        "signal": 1
+    },
+    "2": {
+        "command": "move left",
+        "signal": 2
+    },
+    "3": {
+        "command": "move right",
+        "signal": 3
+    },
+    "4": {
+        "command": "stop",
+        "signal": 4
+    },
+    "5": {
+        "command": "go",
+        "signal": 5
+    }
+}

@@ -1,0 +1,1 @@
+This directory is here to give matplot lib to write to somewhere

@@ -2,6 +2,7 @@
 
 import argparse
 import os
+import subprocess
 
 def list_to_nice_string(input):
     output=""
@@ -28,32 +29,76 @@ def build_container(options):
     command.append("-t {}:{}".format(options["tag"],options["version"]))
     command.append("./docker_config/build_context")
     command_str = " ".join(command)
-    if options["dry_run"] is not None:
-        print("command_str:\n{}".format(command_str))
-    else:
+    print("command_str:\n{}".format(command_str))
+    if options["dry_run"] is None:
         os.system(command_str)  
 
 def run_container(options):
+    # First check this tag exists
+    #,options["version"]
+    check_command = ["docker","images","{}".format(options["tag"])]
+    output = subprocess.run(check_command,capture_output=True).stdout.decode("utf-8")
+    if len(output.split("\n")) ==1:
+        print("No images matched the tag: {}".format(options["tag"]))
+        # print("recommend:\n{}".format("run me"))
+        print("recommend:\n> {}".format("python3 ./control build.{}.{} --tag {} --version {}".format(options["mode"],options["container"],options["tag"],options["version"])))
+        exit()
+
+    found = False
+    for line in output.split("\n")[1:-1]:
+        print(line.split())
+        if line.split()[1] == options["version"]:
+            found = True
+            break
+
+    # Then build command
     command = ["docker","run"]
-    command.append("--mount type=bind,src={},target=/app".format(   os.path.join(os.getcwd(), "persistent_storage/{}/app".format(options["container"])).replace(" ","\\ ")     ))
+    command.append("--mount type=bind,src={},target=/app".format(os.path.join(os.getcwd(), "persistent_storage/{}/app".format(options["container"])).replace(" ","\\ ")     ))
     if options["mode"] == "gpu":
-        command.append("--gpus all")
+        command.append("--gpus 'all,\"capabilities=compute,utility\"'")
     if options["display"] is not None or options["interactive"] is not None:
         command.append("-it")
     command.append("--rm")
+    command.append("--network=\"host\"")
+    # This runs docker user with same uid/gid as host user, avoiding mounted fs issues
+    command.append("-u $(id -u):$(id -g)")
     command.append("--env-file docker_config/env_file.txt")
+    if options["container"]=="bert_as_service":
+        command.append("-p 5555:5555 -p 5556:5556")
+    if options["container"]=="word2vec":
+        command.append("-p 3030:3030")
+    if options["container"]=="end2endtest":
+        command.append("--mount type=bind,src={},target=/speech2text".format(os.path.join(os.getcwd(), "persistent_storage/speech2text")))
+    # this passes in the sound devices into the container
+    if options["container"]=="speech2text":
+        command.append("--device /dev/snd:/dev/snd")
+        command.append("--group-add audio")
     command.append("{}:{}".format(options["tag"],options["version"]))
+    if options["X"] is not None:
+        command.append("-e=DISPLAY=$DISPLAY --volume=\"/tmp/.X11-unix:/tmp/.X11-unix:rw\"")
     if options["script"] == "bash":
         command.append("bash")
+    elif options["container"]=="word2vec" or options["container"]=="bert_as_service":
+        pass # Do nothing here, as we don't need to pass a command to this container
+    elif options["script"][-3:] == ".py":
+        if options["interactive"] is not None:
+            command.append("python3 -i {}".format(options["script"]))
+        else:
+            command.append("python3 {}".format(options["script"]))
     else:
         if options["interactive"] is not None:
-            command.append("python3 -i /app/src/app.py")
+            command.append("python3 -i /app/app.py")
         else:
-            command.append("python3 /app/src/app.py")
+            command.append("python3 /app/app.py")
     command_str = " ".join(command)
-    if options["dry_run"] is not None:
-        print("command_str:\n{}".format(command_str))
-    else:
+    print("command_str:\n{}".format(command_str))
+
+    if found is False:
+        print("No images matched the version: {}".format(options["version"]))
+        print("recommend:\n> {}".format("python3 ./control build.{}.{} --tag {} --version {}".format(options["mode"],options["container"],options["tag"],options["version"])))
+        exit()
+
+    if options["dry_run"] is None:
         os.system(command_str)   
 
 def run_mosquitto(options):
@@ -61,6 +106,7 @@ def run_mosquitto(options):
     command.append("--mount type=bind,src={},target=/mosquitto".format(   os.path.join(os.getcwd(), "persistent_storage/{}".format(options["container"])).replace(" ","\\ ")     ))
     if options["display"] is not None or options["interactive"] is not None:
         command.append("-it")
+    command.append("--rm")
     command.append("-p 1883:1883 -p 9001:9001")
     command.append("eclipse-mosquitto:1.6")
     command_str = " ".join(command)
@@ -76,7 +122,7 @@ def main():
     parser.add_argument('command', metavar='C', type=str, nargs=1,
                     help='See read me for command structure')
     parser.add_argument('--tag', metavar='T', type=str, nargs=1,
-                    help='specify custom tag', default="jamie/nlp_environment_gpu")
+                    help='specify custom tag')
     parser.add_argument('--version', metavar='V', type=str, nargs=1,
                     help='specify custom version', default="1.0")
     parser.add_argument('--script', metavar='S', type=str, nargs=1,
@@ -87,6 +133,8 @@ def main():
                     help='Print output of container to be run to screen')
     parser.add_argument('--dry_run', action='store_const', const=1,
                     help='Print docker command but don\'t run it')
+    parser.add_argument('-X', action='store_const', const=1,
+                    help='Pass through x display')
 
     args = vars(parser.parse_args())
 
@@ -102,7 +150,7 @@ def main():
     possible_options = {
         "function":  ["build","run","setup"],
         "mode":      ["cpu","gpu"],
-        "container": ["speech2text","text2topic","topic2command","mosquitto"]
+        "container": ["end2endtest","speech2text","text2topic","topic2command","mosquitto","general","bert_as_service","word2vec"]
     }
     # check args
     for i,term in enumerate(list(possible_options)):
@@ -110,6 +158,27 @@ def main():
             print("Part of command arg incorrect, see README")
             print("{} should be one of {}".format(parts[i],list_to_nice_string(possible_options[term])))
             return
+    # specific args check for bert_as_service
+    if parts[1]=="cpu" and parts[2]=="bert_as_service":
+        print("Error, bert_as_service reuires gpu access")
+        return
+
+    
+    if args["tag"] is None:
+        if parts[2]=="bert_as_service":
+            args["tag"] = "jamie/nlp_bert_environment_{}".format(parts[1])
+        elif parts[2]=="word2vec":
+            args["tag"] = "jamie/nlp_word2vec_environment_{}".format(parts[1])
+        else:
+            args["tag"] = "jamie/nlp_environment_{}".format(parts[1])
+    else:
+        args["tag"] = args["tag"][0]
+
+    if args["version"] is not None:
+        if "." not in args["version"][0]:
+            args["version"] = "{:.1f}".format(int(args["version"][0]))
+        else:
+            args["version"] = args["version"][0]
 
     options = {
         "mode":parts[1],
@@ -120,6 +189,7 @@ def main():
         "interactive": args["interactive"],
         "dry_run": args["dry_run"],
         "display": args["display"],
+        "X": args["X"]
     }
 
     if parts[2] == "mosquitto":

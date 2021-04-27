@@ -2,6 +2,7 @@
 *.scorer
 *.wav
 *.png
+*.pyc
 __pycache__
 persistent_storage/general
 persistent_storage/bert_as_service/app/BERT_model
@@ -10,3 +11,7 @@ persistent_storage/text2topic/app/Neural_Topic_Segmentation/google_news_word2vec
 persistent_storage/text2topic/app/data
 persistent_storage/word2vec/app/data/vectors.bin
 persistent_storage/word2vec
+persistent_storage/text2topic/app/matplotlib_temp/*
+!persistent_storage/text2topic/app/matplotlib_temp/note.md
+persistent_storage/speech2text/app/data/
+.vscode

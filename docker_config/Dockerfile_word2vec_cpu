@@ -1,0 +1,18 @@
+FROM rust:1.47
+
+WORKDIR /usr/src/myapp
+RUN git clone https://github.com/jamieapps101/google_word2vec_rust_inference_server.git
+
+RUN find -name "Cargo.lock" -exec rm -f {} \+
+
+# RUN cargo install --path ./google_word2vec_rust_inference_server
+
+WORKDIR /usr/src/myapp/google_word2vec_rust_inference_server
+
+RUN cargo build --release
+
+
+CMD ./target/release/word2vec -b /app/data/vectors.bin -p 3030
+
+
+

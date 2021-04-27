@@ -1,0 +1,67 @@
+{
+    "wiki_segments":[
+        "YouTube",
+        "Australia",
+        "Binary_star",
+        "Cheese",
+        "Germany",
+        "House_of_York",
+        "Language",
+        "Manchester",
+        "Munich",
+        "NASA",
+        "OpenBSD",
+        "Parallel_computing",
+        "Silver",
+        "Universe",
+        "Vowel"
+    ],
+    "command_segments": [
+        {
+            "action":   "increase",
+            "object":   "heat",
+            "location": "none"
+        },
+        {
+            "action":   "decrease",
+            "object":   "heat",
+            "location": "none"
+        },
+        {
+            "action":   "activate",
+            "object":   "lights",
+            "location": "none"
+        },
+        {
+            "action":   "deactivate",
+            "object":   "lights",
+            "location": "none"
+        },
+        {
+            "action":   "activate",
+            "object":   "music",
+            "location": "none"
+        },
+        {
+            "action":   "change language",
+            "object":   "english",
+            "location": "none"
+        },
+        {
+            "action":   "change language",
+            "object":   "chinese",
+            "location": "none"
+        },
+        {
+            "action":   "change language",
+            "object":   "german",
+            "location": "none"
+        },
+        {
+            "action":   "change language",
+            "object":   "kerean",
+            "location": "none"
+        }
+    ],
+    "total_samples": 5
+}
