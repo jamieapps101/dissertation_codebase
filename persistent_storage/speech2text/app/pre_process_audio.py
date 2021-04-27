@@ -213,16 +213,19 @@ if __name__=="__main__":
         command = command_data.iloc[rand_command_index]
         file_path = os.path.join(WAV_PATH,command["path"])
         command_audio = AudioSegment.from_file(file_path)
+
+        # seg_index = 0
+        # for q_point_index in range(len(q_points)):
+            # seg = segment_audio[q_points[q_point_index][0]:q_points[q_point_index][1]]
         # insert the command sample
         seg_beginning = segment_audio[:q_points[rand_insert_index][1]]
-        seg_end = segment_audio[q_points[rand_insert_index+1][0]:]
-        new_segs = [seg_beginning,
-                    AudioSegment.silent(duration=1000)+\
-                    command_audio+\
-                    AudioSegment.silent(duration=1000),
-                    seg_end]
+        seg_end       = segment_audio[q_points[rand_insert_index+1][0]:]
+        command_seg   = AudioSegment.silent(duration=1000)+\
+                        command_audio+\
+                        AudioSegment.silent(duration=1000)
+        new_segs = [seg_beginning,command_seg,seg_end]
         # write out audio data
-        for i,seg in enumerate(new_segs)
+        for i,seg in enumerate(new_segs):
             seg.export(os.path.join(PROCESSED_DATA_PATH,"sample_{}_{}.wav".format(total_samples,i)), format="wav")
         print("\t\t\tdone")
 
@@ -276,7 +279,8 @@ if __name__=="__main__":
                 "action":       command["action"],
                 "object":       command["object"],
                 "location":     command["location"],
-                "text":         command["transcription"]
+                "text":         command["transcription"],
+                "total_segs":   3
             },ignore_index=True)
 
         print("\tfinished sample {}".format(subj_index))

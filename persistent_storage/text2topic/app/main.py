@@ -9,6 +9,7 @@ import paho.mqtt.client as mqtt
 import threading, queue
 import pandas as pd
 import numpy as np
+import tensorflow as tf
 
 CONFIG_PATH = "/app/testconfig.json"
 
@@ -19,6 +20,8 @@ MQTT_PORT   = 1883
 
 INPUT_TOPIC = "TS_input"
 OUTPUT_TOPIC = "TS_output"
+
+BERT_IP = "10.80.0.2"
 
 BUFFER_LEN = 10 
 SEG_THRESH = 0.0001
@@ -34,7 +37,7 @@ def on_connect(client, userdata, flags, rc):
 
 def on_message(client, userdata, msg):
     global TS_segments
-    print(msg.topic+" "+str(msg.payload))
+    print("recived text")
     if   msg.topic == INPUT_TOPIC:
         byte_string = msg.payload
         json_string = byte_string.decode("utf-8")
@@ -49,7 +52,7 @@ if __name__=="__main__":
     model=model_training.get_model(load_weights_from=load_weights_params,masking_enabled=True,batch_size=1)
     print(model.summary())
 
-    bc = BertClient(ip="127.0.0.1")
+    bc = BertClient(ip=BERT_IP)
     client = mqtt.Client()
     client.on_connect = on_connect
     client.on_message = on_message
@@ -87,22 +90,18 @@ if __name__=="__main__":
         logits = model({"WE":word_buffer,"SE":sentence_buffer}, training=False).numpy()
         segment_indications = logits>SEG_THRESH
         print("made some cheese")
-        print("logits:\b{}".format(logits.reshape(BUFFER_LEN)))
-        print("segment_indications:\b{}".format(segment_indications.reshape(BUFFER_LEN)))
+        # print("logits:\b{}".format(logits.reshape(BUFFER_LEN)))
+        # print("segment_indications:\b{}".format(segment_indications.reshape(BUFFER_LEN)))
 
-        # split up the text buffer, into two last segs
-        split_index = np.where(segment_indications.reshape(BUFFER_LEN))[0]
-        print("split_index:\b{}".format(split_index))
-        print("segs:{}".format(segs))
-        if len(split_index)>0:  
-            segs.append(text_buffer[split_index[-1]:])
-        print("segs:{}".format(segs))
+        # json could not serialise using this method
+        # segment_indicators = tf.cast(segment_indications,tf.float32)
+        # segment_labels = tf.math.cumsum(segment_indicators).numpy().reshape(BUFFER_LEN)
+        # print("segment_labels:\n{}\n".format(segment_labels))
+        # segs_string = json.dumps(list(segment_labels))
+        # print("segs_string:\n{}\n\n".format(segs_string))
 
-        if len(split_index)>1:  
-            segs.append(text_buffer[split_index[-2]:split_index[-1]])
-        print("segs:{}".format(segs))
-
-        # sent data off into the wild:
-        if len(segs)>0:
-            client.publish(OUTPUT_TOPIC, json.dumps(segs))
-            segs = []
+        segment_labels = np.cumsum(segment_indications.reshape(10)*1)
+        segment_labels_python = [int(x) for x in segment_labels]
+        seg_lab_str    = json.dumps(segment_labels_python)
+        print("seg_lab_str:\n{}".format(seg_lab_str))
+        client.publish(OUTPUT_TOPIC, seg_lab_str)

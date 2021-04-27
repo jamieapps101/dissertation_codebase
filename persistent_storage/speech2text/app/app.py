@@ -17,6 +17,7 @@ import threading, queue
 import wave 
 import shlex
 import subprocess
+import json 
 
 try:
     from shhlex import quote
@@ -66,7 +67,7 @@ def on_message(client, userdata, msg):
     if msg.topic == TEST_CONTROL_TOPIC:
         bytes_string = msg.payload
         string_string = bytes_string.decode("utf-8")
-        data_queue.put(string_string, block=False)
+        data_queue.put(json.loads(string_string), block=False)
 
 # from deep speech
 def convert_samplerate(audio_path, desired_sample_rate):
@@ -183,27 +184,33 @@ if __name__ == "__main__":
         client.loop_start()
         print("beginning looping")
         while True: 
-            file_name = data_queue.get()
-            print("reading:\n{}".format(file_name))
-            file_path = os.path.join(TEST_DATA_DIR,file_name)
-            if os.path.exists(file_path):
-                print("transcribing:\n{}".format(file_path))
-            else:
-                print("could not find:\n{}".format(file_path))
-                continue
-            fin = wave.open(file_path, 'rb')
-            fs_orig = fin.getframerate()
-            if fs_orig != desired_sample_rate:
-                print('Warning: original sample rate ({}) is different than {}hz. Resampling might produce erratic speech recognition.'.format(fs_orig, desired_sample_rate), file=sys.stderr)
-                fs_new, audio = convert_samplerate(file_path, desired_sample_rate)
-            else:
-                audio = np.frombuffer(fin.readframes(fin.getnframes()), np.int16)
-            # audio = np.frombuffer(fin.readframes(fin.getnframes()), np.int16)
-            fin.close()
+            print("waiting on next sample")
+            case_data = data_queue.get()
+            transcript = []
+            for seg_index in range(int(case_data["segs"])):
+                file_name = case_data["audio_fn"]+"_{}.wav".format(seg_index)
+                print("reading:\n{}".format(file_name))
+                file_path = os.path.join(TEST_DATA_DIR,file_name)
+                if os.path.exists(file_path):
+                    print("transcribing:\n{}".format(file_path))
+                else:
+                    print("could not find:\n{}".format(file_path))
+                    continue
+                fin = wave.open(file_path, 'rb')
+                fs_orig = fin.getframerate()
+                if fs_orig != desired_sample_rate:
+                    print('Warning: original sample rate ({}) is different than {}hz. Resampling might produce erratic speech recognition.'.format(fs_orig, desired_sample_rate), file=sys.stderr)
+                    fs_new, audio = convert_samplerate(file_path, desired_sample_rate)
+                else:
+                    audio = np.frombuffer(fin.readframes(fin.getnframes()), np.int16)
+                # audio = np.frombuffer(fin.readframes(fin.getnframes()), np.int16)
+                fin.close()
 
-            inference = ds.sttWithMetadata(audio, 1).transcripts[0]
-            transcript =  ''.join(token.text for token in inference.tokens)
-            client.publish(TEST_OUTPUT_TOPIC,transcript)
+                inference = ds.sttWithMetadata(audio, 1).transcripts[0]
+                transcript.append(''.join(token.text for token in inference.tokens))
+            
+            print("final transcript:\n\n{}\n\n".format(transcript))
+            client.publish(TEST_OUTPUT_TOPIC,json.dumps(transcript))
             print("I got:\n{}".format(transcript))
 
 

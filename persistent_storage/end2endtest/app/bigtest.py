@@ -4,6 +4,7 @@ import threading, queue
 import pandas as pd
 from string_comparisons import get_WER
 from topic_comparisons import get_Pk_error
+import numpy as np
 
 CONFIG_PATH = "/app/testconfig.json"
 
@@ -40,15 +41,16 @@ def on_message(client, userdata, msg):
     global DS_transcripts
     global TS_segments
     global TC_comparisons
-    print(msg.topic+" "+str(msg.payload))
+    # print(msg.topic+" "+str(msg.payload))
     if   msg.topic == DS_OUTPUT_TOPIC:
         print("Received DS output")
         transcript = msg.payload.decode("utf-8")
-        DS_transcripts.put(transcript)
+        # print("transcript:\n\n{}\n\n".format(transcript))
+        DS_transcripts.put(json.loads(transcript))
     elif msg.topic == TS_OUTPUT_TOPIC:
-        print("Received TF output")
+        print("Received TS output")
         topic_string = msg.payload.decode("utf-8")
-        topics = topic_string.split("|")
+        topics = json.loads(topic_string)
         TS_segments.put(topics)
     elif msg.topic == TC_OUTPUT_TOPIC:
         print("Received TC output")
@@ -95,11 +97,11 @@ if __name__=="__main__":
         if case_data["sample_index"]==0:
             continue
         # generate path information
-        audio_fn = "sample_{}.wav".format(int(case_data["sample_index"]))
-        audio_path      = os.path.join(DATA_PATH,audio_fn)
-        if not os.path.exists(audio_path):
-            print("could not locate:{}\n skipping test case".format(audio_path))
-            continue
+        audio_fn = "sample_{}".format(int(case_data["sample_index"]))
+        # audio_path      = os.path.join(DATA_PATH,audio_fn)
+        # if not os.path.exists(audio_path):
+            # print("could not locate:{}\n skipping test case".format(audio_path))
+            # continue
         transcript_fn = "sample_{}.txt".format(int(case_data["sample_index"]))
         transcript_path = os.path.join(DATA_PATH,transcript_fn)
         if not os.path.exists(transcript_path):
@@ -121,35 +123,48 @@ if __name__=="__main__":
         ## DS test
         print("Testing DS, this may take a while")
         # message DS to start parsing the audio file:
-        client.publish(DS_INPUT_TOPIC, audio_fn)
+        client.publish(DS_INPUT_TOPIC, 
+            json.dumps({
+                "audio_fn":audio_fn,
+                "segs":case_data["total_segs"]
+                }))
         # wait 60 seconds for DS to listen and transcribe the data
-        time.sleep(30)
+        # time.sleep(60)
         # wait for DS to respond with text
-        ds_transcript = []
-        while not DS_transcripts.empty():
-            ds_transcript=DS_transcripts.get(block=False)
+        # ds_transcript = []
+        # while not DS_transcripts.empty():
+        ds_transcript = DS_transcripts.get(block=True)
         # process it
         wer = get_WER("".join(gt_transcript),"".join(ds_transcript))
         print("wer: {}".format(wer))
-        exit()
         ## TS test
         print("Testing TS")
         # pass on text to topic segmenter
-        client.publish(TS_INPUT_TOPIC, ds_transcript)
+        client.publish(TS_INPUT_TOPIC, json.dumps(ds_transcript))
         # wait for segments to be reterned
-        topics = TS_segments.get()
-        if len(topics)>0:
-            middle_topic = topics[-1]
-            # process it
-            Pk = get_Pk_error([],[],5)
-        else:
-            Pk = None  
+        topics_window = TS_segments.get()
+        topics = topics_window[-len(ds_transcript):]
+        topics_hype = [t-topics[0] for t in topics]
+        topics_gt = list(range(len(ds_transcript)))
+        # exit()
+        Pk = get_Pk_error(topics_hype,topics_gt,1)
+        print("Pk:{}".format(Pk))
 
         
         
         # TC test
         print("Testing TC")
-        # pass on segments to segment comparison
-        # wait for copmmrisons to be reterned
+        # join together all segments deemed to be the same topic
+        unique_seg_IDs = np.unique(np.array(topics_hype))
+        topics = []
+        topics_hype_np = np.array(topics_hype)
+        for topic_label in unique_seg_IDs:
+            seg_indexes = np.where(topics_hype_np==topic_label)[0]
+            temp = ""
+            for index in seg_indexes:
+                temp += ds_transcript[index]
+            topics.append(temp)
+
+        client.publish(TC_INPUT_TOPIC, json.dumps(topics))
         command = TC_comparisons.get()
         # log this
