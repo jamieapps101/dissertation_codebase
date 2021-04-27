@@ -132,25 +132,34 @@ if __name__=="__main__":
     subj_index = 0
     max_subj = len(config["wiki_segments"])
     total_samples = 0
+    config["wiki_segments_dir"] = os.listdir("/app/data/unprocessed/spoken_wikipedia/english")
+    total_subjects = len(config["wiki_segments_dir"])
     # for each audio clip
     while True:
-        subj_name = config["wiki_segments"][subj_index]
-        print("Generating sample {}, using subj of {}".format(subj_index,subj_name))
+        subj_name = config["wiki_segments_dir"][np.random.randint(total_subjects)]
+        print("Generating sample {}/{}, using subj of {}".format(total_samples,config["total_samples"],subj_name))
         # load in audio track
         print("\tloading audio... ")
         subj_path = os.path.join(SEGMENT_DATA_PATH,subj_name)
-        subj_path_contents = os.listdir(subj_path)
+        try:
+            subj_path_contents = os.listdir(subj_path)
+        except NotADirectoryError:
+            print("just tried to process the README file, that was a little silly...")
+            continue
         if "audio.ogg" in subj_path_contents:
             ogg_path = os.path.join(subj_path,"audio.ogg")
-        else:
+        elif "audio1.ogg" in subj_path_contents:
             ogg_path = os.path.join(subj_path,"audio1.ogg")
+        else:
+            print("No audio file found, skipping")
+            continue
         
         segment_audio = None
         try:
             segment_audio = AudioSegment.from_file(ogg_path)
         except pydub.exceptions.CouldntDecodeError :
             print("pydub decode error, skipping sample")
-            subj_index+=1
+            # subj_index+=1
             continue
         print("\t\t\tdone")
 
@@ -159,6 +168,9 @@ if __name__=="__main__":
         print("\tprocessing transcipt... ")
         xml_path  = os.path.join(subj_path,"aligned.swc") 
         xml_data = None
+        if not os.path.exists(xml_path):
+            print("could not find\n{}\nskipping sample".format(xml_path))
+            continue
         with open(xml_path, "r") as fp:
             xml_data = minidom.parse(fp)
         words = get_intro_sections(xml_data)
@@ -166,9 +178,18 @@ if __name__=="__main__":
         print("\t\t\tdone")
 
         # trim segment audio to get only summary section
-        summary_start_time = df[df["word_end"]!=-1]["word_end"].iloc[0]  - 3000 # add 3 seconds onto each end, as there is some error in this 
-        summary_end_time   = df[df["word_end"]!=-1]["word_end"].iloc[-1] + 3000
-        segment_audio = segment_audio[summary_start_time:summary_end_time]
+        try:
+            summary_start_time = df[df["word_end"]!=-1]["word_end"].iloc[0]  - 3000 # add 3 seconds onto each end, as there is some error in this 
+            summary_end_time   = df[df["word_end"]!=-1]["word_end"].iloc[-1] + 3000
+            segment_audio = segment_audio[summary_start_time:summary_end_time]
+        except IndexError:
+            print("{} gave issues with getting summary, skipping".format(subj_name))
+            continue 
+        except KeyError:
+            print("{} gave issues with getting summary, skipping".format(subj_name))
+            continue 
+
+            
 
         # get all quiet points
         print("\tscanning for quiet points... ")
@@ -179,7 +200,7 @@ if __name__=="__main__":
         
         if len(q_points) <2:
             print("\n\terror, could not find silent point in {} section, skipping".format(subj_name))
-            subj_index+=1
+            # subj_index+=1
             continue
         print("\t\t\tdone")
 
@@ -195,9 +216,14 @@ if __name__=="__main__":
         # insert the command sample
         seg_beginning = segment_audio[:q_points[rand_insert_index][1]]
         seg_end = segment_audio[q_points[rand_insert_index+1][0]:]
-        new_seg = seg_beginning+command_audio+seg_end
+        new_segs = [seg_beginning,
+                    AudioSegment.silent(duration=1000)+\
+                    command_audio+\
+                    AudioSegment.silent(duration=1000),
+                    seg_end]
         # write out audio data
-        new_seg.export(os.path.join(PROCESSED_DATA_PATH,"sample_{}.mp3".format(subj_index)), format="mp3")
+        for i,seg in enumerate(new_segs)
+            seg.export(os.path.join(PROCESSED_DATA_PATH,"sample_{}_{}.wav".format(total_samples,i)), format="wav")
         print("\t\t\tdone")
 
 
@@ -228,7 +254,7 @@ if __name__=="__main__":
         in_command = False
         # and recombine segments
         text_data = seg_1.append(seg_2,ignore_index=True)
-        transcript_path = os.path.join(PROCESSED_DATA_PATH,"sample_{}.txt".format(subj_index))
+        transcript_path = os.path.join(PROCESSED_DATA_PATH,"sample_{}.txt".format(total_samples))
         with open(transcript_path, "w") as fp:
             for row in text_data.iterrows():
                 word = row[1]["word_text"]
@@ -255,12 +281,12 @@ if __name__=="__main__":
 
         print("\tfinished sample {}".format(subj_index))
 
-        subj_index+=1
+        # subj_index+=1
         total_samples+=1
         if total_samples == config["total_samples"]:
             break
-        if subj_index>=len(config["wiki_segments"]):
-            subj_index -= len(config["wiki_segments"])
+        # if subj_index>=len(config["wiki_segments"]):
+            # subj_index -= len(config["wiki_segments"])
             
         print("\n")
     print("completed sampling")

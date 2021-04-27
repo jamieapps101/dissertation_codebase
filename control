@@ -67,6 +67,8 @@ def run_container(options):
         command.append("-p 5555:5555 -p 5556:5556")
     if options["container"]=="word2vec":
         command.append("-p 3030:3030")
+    if options["container"]=="end2endtest":
+        command.append("--mount type=bind,src={},target=/speech2text".format(os.path.join(os.getcwd(), "persistent_storage/speech2text")))
     # this passes in the sound devices into the container
     if options["container"]=="speech2text":
         command.append("--device /dev/snd:/dev/snd")
@@ -85,9 +87,9 @@ def run_container(options):
             command.append("python3 {}".format(options["script"]))
     else:
         if options["interactive"] is not None:
-            command.append("python3 -i /app/src/app.py")
+            command.append("python3 -i /app/app.py")
         else:
-            command.append("python3 /app/src/app.py")
+            command.append("python3 /app/app.py")
     command_str = " ".join(command)
     print("command_str:\n{}".format(command_str))
 

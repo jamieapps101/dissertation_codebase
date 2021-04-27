@@ -15,10 +15,16 @@ import sys
 import pyaudio
 import threading, queue
 import wave 
+import shlex
+import subprocess
 
+try:
+    from shhlex import quote
+except ImportError:
+    from pipes import quote
 
-TEST_MODE = False
-TEST_DATA_DIR = "/app"
+TEST_MODE = True
+TEST_DATA_DIR = "/app/data/processed"
 TEST_CONTROL_TOPIC = "ds_control"
 TEST_OUTPUT_TOPIC = "ds_out"
 REALTIME_INPUT_DEVICE = 10
@@ -30,7 +36,7 @@ def get_env_val(env_name,val):
     else:
         return val
 
-TEST_DATA_DIR         = get_env_val("TEST_DATA_DIR",         "/app")
+TEST_DATA_DIR         = get_env_val("TEST_DATA_DIR",         TEST_DATA_DIR)
 TEST_CONTROL_TOPIC    = get_env_val("TEST_CONTROL_TOPIC",    "ds_control")
 TEST_OUTPUT_TOPIC     = get_env_val("TEST_OUTPUT_TOPIC",     "ds_out")
 REALTIME_INPUT_DEVICE = get_env_val("REALTIME_INPUT_DEVICE", 10)
@@ -47,10 +53,11 @@ data_queue = queue.Queue()
 # The callback for when the client receives a CONNACK response from the server.
 def on_connect(client, userdata, flags, rc):
     print("Connected with result code "+str(rc))
+    client.subscribe(TEST_CONTROL_TOPIC)
+    print("should be subbed")
 
     # Subscribing in on_connect() means that if we lose the connection and
     # reconnect then subscriptions will be renewed.
-    client.subscribe("$SYS/#")
 
 # The callback for when a PUBLISH message is received from the server.
 def on_message(client, userdata, msg):
@@ -61,16 +68,30 @@ def on_message(client, userdata, msg):
         string_string = bytes_string.decode("utf-8")
         data_queue.put(string_string, block=False)
 
+# from deep speech
+def convert_samplerate(audio_path, desired_sample_rate):
+    sox_cmd = 'sox {} --type raw --bits 16 --channels 1 --rate {} --encoding signed-integer --endian little --compression 0.0 --no-dither - '.format(quote(audio_path), desired_sample_rate)
+    try:
+        output = subprocess.check_output(shlex.split(sox_cmd), stderr=subprocess.PIPE)
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError('SoX returned non-zero status: {}'.format(e.stderr))
+    except OSError as e:
+        raise OSError(e.errno, 'SoX not found, use {}hz files or install it: {}'.format(desired_sample_rate, e.strerror))
+
+    return desired_sample_rate, np.frombuffer(output, np.int16)
+
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Deep Speech Application')
-    parser.add_argument('Mode',     metavar='M', nargs=1)
-    parser.add_argument('--File',   metavar='F', nargs=1)
-    parser.add_argument('--Device', metavar='D', nargs=1,type=int)
-    args = parser.parse_args()
+    print("TEST_MODE: {}".format(TEST_MODE))
+
+    # parser = argparse.ArgumentParser(description='Deep Speech Application')
+    # parser.add_argument('Mode',     metavar='M', nargs=1)
+    # parser.add_argument('--File',   metavar='F', nargs=1)
+    # parser.add_argument('--Device', metavar='D', nargs=1,type=int)
+    # args = parser.parse_args()
 
     device_index = None
-    if args.Device is None:
+    if False:
         # have a look for the camera
         a = pyaudio.PyAudio()
         devs = [a.get_device_info_by_index(i) for i in range(a.get_device_count())]
@@ -79,8 +100,6 @@ if __name__ == "__main__":
                 device_index = i
                 print("connecting to:\n{}\n".format(dev))
                 break
-    else:  
-        device_index = args.Device[0]
 
 
     # load in DS model
@@ -91,6 +110,9 @@ if __name__ == "__main__":
     ds = Model(pb)
     ds.enableExternalScorer(scorer)
     model = ds
+    desired_sample_rate = ds.sampleRate()
+
+    print("TEST_MODE: {}".format(TEST_MODE))
 
     if not TEST_MODE:
         # connect to mqtt server
@@ -101,7 +123,7 @@ if __name__ == "__main__":
             transport="tcp")
 
         client.on_connect = on_connect
-        client.connect("pi4-a", 30104, 60)
+        client.connect("127.0.0.1", 1883, 60)
         # start another thread to react to incoming messages
         client.loop_start()
         # Start audio with VAD
@@ -156,20 +178,27 @@ if __name__ == "__main__":
 
         client.on_connect = on_connect
         client.on_message = on_message
-        client.connect("pi4-a", 30104, 60)
+        client.connect("127.0.0.1", 1883, 60)
         # start another thread to react to incoming messages
         client.loop_start()
-
+        print("beginning looping")
         while True: 
             file_name = data_queue.get()
+            print("reading:\n{}".format(file_name))
             file_path = os.path.join(TEST_DATA_DIR,file_name)
             if os.path.exists(file_path):
                 print("transcribing:\n{}".format(file_path))
             else:
                 print("could not find:\n{}".format(file_path))
                 continue
-            fin = wave.open(args.audio, 'rb')
-            audio = np.frombuffer(fin.readframes(fin.getnframes()), np.int16)
+            fin = wave.open(file_path, 'rb')
+            fs_orig = fin.getframerate()
+            if fs_orig != desired_sample_rate:
+                print('Warning: original sample rate ({}) is different than {}hz. Resampling might produce erratic speech recognition.'.format(fs_orig, desired_sample_rate), file=sys.stderr)
+                fs_new, audio = convert_samplerate(file_path, desired_sample_rate)
+            else:
+                audio = np.frombuffer(fin.readframes(fin.getnframes()), np.int16)
+            # audio = np.frombuffer(fin.readframes(fin.getnframes()), np.int16)
             fin.close()
 
             inference = ds.sttWithMetadata(audio, 1).transcripts[0]
