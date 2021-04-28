@@ -100,6 +100,7 @@ if __name__ == "__main__":
 
     while True:
         data = segments_queue.get()
+        out = []
         for segment in data:
             # encode topic
             encode = bert_client_connection.encode([segment])
@@ -113,4 +114,5 @@ if __name__ == "__main__":
             else:
                 print("best match:\n{}".format(matches.iloc[0]))
                 out_data={"command":matches.iloc[0]["command"]}
-            client.publish(OUTGOING_COMM_TOPIC,json.dumps(out_data))
+                out.append(out_data)
+        client.publish(OUTGOING_COMM_TOPIC,json.dumps(out))

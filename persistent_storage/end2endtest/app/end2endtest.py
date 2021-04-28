@@ -140,20 +140,32 @@ if __name__=="__main__":
                 "audio_fn":audio_fn,
                 "segs":case_data["total_segs"]
                 }))
+        print("a")
         # wait 60 seconds for DS to listen and transcribe the data
         # time.sleep(60)
         # wait for DS to respond with text
         # ds_transcript = []
         # while not DS_transcripts.empty():
         ds_transcript = DS_transcripts.get(block=True)
+        for element in ds_transcript:
+            if len(element)>300:
+                print("skipping sample as its huge")
+        print("b")
         # process it
-        wer_out = get_WER("".join(gt_transcript),"".join(ds_transcript))
+        # exit()
+        try:
+            wer_out = get_WER("".join(raw_text),"".join(ds_transcript))
+        except:
+            print("WER issue, skipping sample")
+            continue
+        print("c")
         wer = wer_out["WER"]
         print("wer: {}".format(wer))
         ## TS test
         print("Testing TS")
         # pass on text to topic segmenter
         client.publish(TS_INPUT_TOPIC, json.dumps(ds_transcript))
+        print("message sent")
         # wait for segments to be reterned
         topics_window = TS_segments.get()
         topics = topics_window[-len(ds_transcript):]
@@ -188,15 +200,20 @@ if __name__=="__main__":
         else:
             command_template = case_data["action"]+" to "+case_data["action"]
 
-        command_data = TC_comparisons.get()
-        command_result = None
-        if command_data["command"] == "": # no command met the thresh
-            command_result = 0
-        else:
-            if command_data["command"]==command_reference:
-                command_result = 2
+        comparisons = TC_comparisons.get()
+        command_result = []
+
+        for command_data in comparisons:
+            if command_data["command"] == "": # no command met the thresh
+                command_result.append(0)
             else:
-                command_result = 1
+                if command_data["command"]==command_reference:
+                    command_result.append(2)
+                else:
+                    command_result.append(1)
+
+        # get best result
+        command_result = max(command_result)
 
 
         # log this

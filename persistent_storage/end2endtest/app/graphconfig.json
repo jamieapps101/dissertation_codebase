@@ -1,0 +1,54 @@
+{
+    "data": [
+        {
+            "fn": "",
+            "seg_thresh": 0.5,
+            "com_thresh": 0.5
+        },
+        {
+            "fn": "",
+            "seg_thresh": 0.5,
+            "com_thresh": 0.5
+        },
+        {
+            "fn": "",
+            "seg_thresh": 0.5,
+            "com_thresh": 0.5
+        },
+        {
+            "fn": "",
+            "seg_thresh": 0.5,
+            "com_thresh": 0.5
+        },
+        {
+            "fn": "",
+            "seg_thresh": 0.5,
+            "com_thresh": 0.5
+        },
+        {
+            "fn": "",
+            "seg_thresh": 0.5,
+            "com_thresh": 0.5
+        },
+        {
+            "fn": "",
+            "seg_thresh": 0.5,
+            "com_thresh": 0.5
+        },
+        {
+            "fn": "",
+            "seg_thresh": 0.5,
+            "com_thresh": 0.5
+        },
+        {
+            "fn": "",
+            "seg_thresh": 0.5,
+            "com_thresh": 0.5
+        },
+        {
+            "fn": "",
+            "seg_thresh": 0.5,
+            "com_thresh": 0.5
+        },
+    ]
+}
