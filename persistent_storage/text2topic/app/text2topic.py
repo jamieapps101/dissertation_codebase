@@ -37,12 +37,17 @@ def on_connect(client, userdata, flags, rc):
 
 def on_message(client, userdata, msg):
     global TS_segments
-    print("recived text")
-    if   msg.topic == INPUT_TOPIC:
+    print("received message")
+    if msg.topic == INPUT_TOPIC:
+        print("on correct topic!")
         byte_string = msg.payload
         json_string = byte_string.decode("utf-8")
         json_data = json.loads(json_string)
         TS_segments.put(json_data)
+    else:
+        print("topic: = '{}'".format(msg.topic))
+        print("actual topic: = '{}'".format(INPUT_TOPIC))
+
 
 if __name__=="__main__":
     load_weights_params = {
@@ -67,14 +72,23 @@ if __name__=="__main__":
     segs            = []
 
     print("Ready to begin")
+    max_sentence_len = 90
     while True:
         # data should be a list of strings, each string is a sentence 
         data = TS_segments.get()
         text_buffer = (text_buffer+data)[-10:]
         word_data = [sentence.split() for sentence in data]
+        # deal with long sentences
+        temp = []
+        for sentence in word_data:
+            if len(sentence)>max_sentence_len:
+                max_sentence_len = len(sentence)
+
+
+        data = [element if len(element)>0 else "a" for element in data]
         # everything needs to be encoded now
         bert_data     = data_pre_processing.get_bert_encoding(data,bc)
-        word2vec_data = data_pre_processing.get_word2vec_encoding(word_data,max_sentence_len=90,max_sentences=100)
+        word2vec_data = data_pre_processing.get_word2vec_encoding(word_data,max_sentence_len=max_sentence_len,max_sentences=100)
         # fit it into a numpy matrix to fit into the model
         ## add a batch dim
         bert_data = np.expand_dims(bert_data,0)
@@ -82,8 +96,22 @@ if __name__=="__main__":
         ## append to buffer window
         sentence_buffer = np.concatenate([sentence_buffer,bert_data],axis=1)
         sentence_buffer = sentence_buffer[:,-10:,:]
+        print("word_buffer.shape: {}".format(word_buffer.shape))
+        print("word2vec_data.shape: {}".format(word2vec_data.shape))
+        if word_buffer.shape[2]<word2vec_data.shape[2]:
+            padding_req = word2vec_data.shape[2]-word_buffer.shape[2]
+            max_sentence_len=word2vec_data.shape[2]
+            buffer_dims = list(word_buffer.shape)
+            buffer_dims[2] = padding_req
+            print("additional padding required: {}".format(buffer_dims))
+            word_buffer     = np.concatenate([word_buffer,np.zeros(buffer_dims)],axis=2)
+
         word_buffer     = np.concatenate([word_buffer,word2vec_data],axis=1)
         word_buffer     = word_buffer[:,-10:,:,:]
+
+        # now srink down the buffer, gettign the min required sentence length
+        # MSL = np.max((word_buffer==0).argmax(axis=3))
+        # word_buffer     = word_buffer[:,:,:MSL,:]
 
         # put it into the model
         print("churning the model")
@@ -105,3 +133,4 @@ if __name__=="__main__":
         seg_lab_str    = json.dumps(segment_labels_python)
         print("seg_lab_str:\n{}".format(seg_lab_str))
         client.publish(OUTPUT_TOPIC, seg_lab_str)
+        print("sent\n\n")

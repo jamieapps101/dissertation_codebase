@@ -114,14 +114,19 @@ def get_actions(a,b,path):
 def myers_alg(a,b):
     # first produce a graph, with m rows where m is the length of the initial sequence
     # and n cols where n is the length of the target sequence
+    print("sc - j")
     transition_mat = gen_transition_mat(a,b)
 
     # now perform dijkstras alg for going from top right pos (0,0) to bottom
     # right graph node (n,m)
-    gen_transition_mat(a,b)
+    print("sc - k")
+    # gen_transition_mat(a,b)
     start_node     = 0
+    print("sc - l")
     end_node       = (len(a)+1)*(len(b)+1)-1
+    print("sc - m")
     path = get_shortest_path(start_node,end_node,transition_mat)
+    print("sc - n")
     actions = get_actions(a,b,path)
     return actions
 
@@ -135,11 +140,17 @@ def decode_words(word_table, enc_words):
 # white space, so "hello"!="hello!")
 def myers_alg_string(a,b):
     # convert to unique identifers
+    print("sc - d")
     words_raw = a.split()+b.split()
+    print("sc - e")
     word_table = pd.unique(words_raw)
+    print("sc - f")
     a_encoded = encode_words(word_table,a.split())
+    print("sc - g")
     b_encoded = encode_words(word_table,b.split())
+    print("sc - h")
     actions = myers_alg(a_encoded,b_encoded)
+    print("sc - i")
     return actions,word_table
 
 def pretty_print(a,b):
@@ -158,6 +169,7 @@ def calc_WER(actions):
     D = 0
     I = 0
     C = 0
+    print("sc - b")
     last_action = None
     for action in actions:
         if action["key"]=="keep": # the action must be to keep
@@ -183,7 +195,7 @@ def calc_WER(actions):
                         D+=1
                         last_action="delete"
 
-        
+    print("sc - c")
     WER = (S+D+I)/(S+D+C)
     print("S:{}".format(S))
     print("D:{}".format(D))
@@ -194,14 +206,16 @@ def calc_WER(actions):
         "D":    D,
         "I":    I,
         "C":    C,
-        "WER":  WER,
+        "WER":  WER
     }
     return out
 
 
 # input strings to this
 def get_WER(a,b):
+    print("sc - a")
     actions,_word_table = myers_alg_string(a,b)
+    print("sc - b")
     return calc_WER(actions)
 
 if __name__=="__main__":
