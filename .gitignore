@@ -15,3 +15,5 @@ persistent_storage/text2topic/app/matplotlib_temp/*
 !persistent_storage/text2topic/app/matplotlib_temp/note.md
 persistent_storage/speech2text/app/data/
 .vscode
+persistent_storage/end2endtest/app/graphs_out
+persistent_storage/end2endtest/app/graph_data/

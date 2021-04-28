@@ -5,8 +5,11 @@ import pandas as pd
 from string_comparisons import get_WER
 from topic_comparisons import get_Pk_error
 import numpy as np
+from time import gmtime, strftime
 
 CONFIG_PATH = "/app/testconfig.json"
+
+RESULTS_PATH = "/app/results"
 
 DATA_PATH   = "/speech2text/app/data/processed/"
 
@@ -55,7 +58,8 @@ def on_message(client, userdata, msg):
     elif msg.topic == TC_OUTPUT_TOPIC:
         print("Received TC output")
         topic_string = msg.payload.decode("utf-8")
-        TC_comparisons.put(topic_string)
+        data = json.loads(topic_string)
+        TC_comparisons.put(data)
     else:
         print("Received non-data message")
 
@@ -76,6 +80,14 @@ if __name__=="__main__":
     # if test_data_ref is None:
         # print("could not load test data summary")
         # exit(1)
+
+    # create database to store the results
+    results = pd.DataFrame(data={
+        "sample_id":[],
+        "wer":[],
+        "pk":[],
+        "command_result":[], # 0 indicates no returned result, 1 indicates incorrect command infered, 2 indicates correct commadn
+        })
 
     #  setup MQTT connection
     print("setup MQTT connection")
@@ -135,7 +147,8 @@ if __name__=="__main__":
         # while not DS_transcripts.empty():
         ds_transcript = DS_transcripts.get(block=True)
         # process it
-        wer = get_WER("".join(gt_transcript),"".join(ds_transcript))
+        wer_out = get_WER("".join(gt_transcript),"".join(ds_transcript))
+        wer = wer_out["WER"]
         print("wer: {}".format(wer))
         ## TS test
         print("Testing TS")
@@ -166,5 +179,41 @@ if __name__=="__main__":
             topics.append(temp)
 
         client.publish(TC_INPUT_TOPIC, json.dumps(topics))
-        command = TC_comparisons.get()
+        
+        # generate template command
+        # object ,location ,text 
+        command_reference = ""
+        if case_data["action"] in ["activate", "deactivate", "increase", "decrease"] :
+            command_template = case_data["action"]+" the "+case_data["action"]
+        else:
+            command_template = case_data["action"]+" to "+case_data["action"]
+
+        command_data = TC_comparisons.get()
+        command_result = None
+        if command_data["command"] == "": # no command met the thresh
+            command_result = 0
+        else:
+            if command_data["command"]==command_reference:
+                command_result = 2
+            else:
+                command_result = 1
+
+
         # log this
+        sample_data = {
+            "sample_id":        case_data["sample_index"],
+            "S":                wer_out["S"],
+            "D":                wer_out["D"],
+            "I":                wer_out["I"],
+            "C":                wer_out["C"],
+            "WER":              wer_out["WER"],
+            "pk":               Pk,
+            "command_result":   command_result, # 0 indicates no returned result, 1 indicates incorrect command infered, 2 indicates correct commadn
+        }
+        print("sample_data:\n{}\n\n".format(sample_data))
+        results = results.append(sample_data,ignore_index=True)
+
+    # after all samples tested, record results
+    output_fn = os.path.join(RESULTS_PATH,strftime("%Y_%m_%d-%H_%M_%S.csv", gmtime()))
+    with open(output_fn,"w") as fp:
+        results.to_csv(fp)

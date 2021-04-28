@@ -44,24 +44,24 @@
         },
         {
             "action":   "change language",
-            "object":   "english",
+            "object":   "English",
             "location": "none"
         },
         {
             "action":   "change language",
-            "object":   "chinese",
+            "object":   "Chinese",
             "location": "none"
         },
         {
             "action":   "change language",
-            "object":   "german",
+            "object":   "German",
             "location": "none"
         },
         {
             "action":   "change language",
-            "object":   "kerean",
+            "object":   "Korean",
             "location": "none"
         }
     ],
-    "total_samples": 5
+    "total_samples": 1000
 }

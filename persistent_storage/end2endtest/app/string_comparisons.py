@@ -189,7 +189,14 @@ def calc_WER(actions):
     print("D:{}".format(D))
     print("I:{}".format(I))
     print("C:{}".format(C))
-    return WER
+    out = {
+        "S":    S,
+        "D":    D,
+        "I":    I,
+        "C":    C,
+        "WER":  WER,
+    }
+    return out
 
 
 # input strings to this

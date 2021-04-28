@@ -1,27 +1,38 @@
 {
-    
-    "0": {
-        "command": "move up",
-        "signal": 0
+    "0":{
+        "command":  "increase the heat",
+        "signal":   0
     },
-    "1": {
-        "command": "move down",
-        "signal": 1
+    "1":{
+        "command":  "decrease the heat",
+        "signal":   1
     },
-    "2": {
-        "command": "move left",
-        "signal": 2
+    "2":{
+        "command":  "activate the lights",
+        "signal":   2
     },
-    "3": {
-        "command": "move right",
-        "signal": 3
+    "3":{
+        "command":  "deactivate the lights",
+        "signal":   3
     },
-    "4": {
-        "command": "stop",
-        "signal": 4
+    "4":{
+        "command":  "activate the music",
+        "signal":   4
     },
-    "5": {
-        "command": "go",
-        "signal": 5
+    "5":{
+        "command":   "change language to English",
+        "signal":   5
+    },
+    "6":{
+        "command":   "change language to Chinese",
+        "signal":   6
+    },
+    "7":{
+        "command":   "change language to German",
+        "signal":   7
+    },
+    "8":{
+        "command":   "change language to Korean",
+        "signal":   8
     }
 }

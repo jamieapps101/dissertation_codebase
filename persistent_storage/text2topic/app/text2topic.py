@@ -11,20 +11,20 @@ import pandas as pd
 import numpy as np
 import tensorflow as tf
 
-CONFIG_PATH = "/app/testconfig.json"
+SEG_THRESH = 0.0001
 
+
+CONFIG_PATH = "/app/testconfig.json"
 DATA_PATH   = "/app/data/processed"
 
+BERT_IP = "10.80.0.2"
 MQTT_HOST   = "127.0.0.1"
 MQTT_PORT   = 1883
 
 INPUT_TOPIC = "TS_input"
 OUTPUT_TOPIC = "TS_output"
 
-BERT_IP = "10.80.0.2"
-
 BUFFER_LEN = 10 
-SEG_THRESH = 0.0001
 
 # setup queues to enable callbacks to inform main thread
 TS_segments    = queue.Queue()

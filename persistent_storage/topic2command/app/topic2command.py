@@ -106,9 +106,11 @@ if __name__ == "__main__":
             # get cosine sims
             # get those above thresh
             matches = command_db.get_matches(encode)
+            out_data = None
             if matches.shape[0] < 1:
                 print("no matches above thresh")
-                client.publish(OUTGOING_COMM_TOPIC,"-1")
+                out_data={"command":""}
             else:
                 print("best match:\n{}".format(matches.iloc[0]))
-                client.publish(OUTGOING_COMM_TOPIC,json.dumps(matches.iloc[0]["signal"]))
+                out_data={"command":matches.iloc[0]["command"]}
+            client.publish(OUTGOING_COMM_TOPIC,json.dumps(out_data))
