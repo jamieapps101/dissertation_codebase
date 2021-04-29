@@ -105,7 +105,7 @@ if __name__=="__main__":
     # exit()
     # begin looping through test cases
     for index,case_data in data_summary.iterrows():
-
+        print("working on index: {}".format(index))
         if case_data["sample_index"]==0:
             continue
         # generate path information
@@ -128,10 +128,17 @@ if __name__=="__main__":
         control_tag_command  = re.compile(r"\<command\>[\w\s]+\<\/command\>")
         raw_text = re.sub(control_tag_all,"",gt_transcript)
         topics   = re.split(control_tag_all,gt_transcript)
-        command_temp  = re.findall(control_tag_command,gt_transcript)[0]
+        temp  = re.findall(control_tag_command,gt_transcript)
+        if len(temp) < 1:
+            print("weird issue with input, skipping")
+            continue
+        command_temp = temp[0]
         command  = re.sub(control_tag_all,"",command_temp)
 
-
+        print("raw_text len: {}".format(len(raw_text.split())))
+        if len(raw_text.split())>200:
+            print("raw txt idicates this is a long sample, skipping")
+            continue
         ## DS test
         print("Testing DS, this may take a while")
         # message DS to start parsing the audio file:
@@ -140,7 +147,7 @@ if __name__=="__main__":
                 "audio_fn":audio_fn,
                 "segs":case_data["total_segs"]
                 }))
-        print("a")
+        # print("a")
         # wait 60 seconds for DS to listen and transcribe the data
         # time.sleep(60)
         # wait for DS to respond with text
@@ -150,7 +157,7 @@ if __name__=="__main__":
         for element in ds_transcript:
             if len(element)>300:
                 print("skipping sample as its huge")
-        print("b")
+        # print("b")
         # process it
         # exit()
         try:
@@ -158,14 +165,14 @@ if __name__=="__main__":
         except:
             print("WER issue, skipping sample")
             continue
-        print("c")
+        # print("c")
         wer = wer_out["WER"]
         print("wer: {}".format(wer))
         ## TS test
         print("Testing TS")
         # pass on text to topic segmenter
         client.publish(TS_INPUT_TOPIC, json.dumps(ds_transcript))
-        print("message sent")
+        # print("message sent")
         # wait for segments to be reterned
         topics_window = TS_segments.get()
         topics = topics_window[-len(ds_transcript):]
@@ -190,43 +197,57 @@ if __name__=="__main__":
                 temp += ds_transcript[index]
             topics.append(temp)
 
+        print("command segs:")
+        condensed_topics = []
+        for sentence in topics:
+            words = sentence.split()
+            trunc_len = min(len(words),7)
+            cond_sent = words[:trunc_len]
+            print("\t{}".format(cond_sent))
+            # condensed_topics.append(cond_sent)
+        print("\n")
         client.publish(TC_INPUT_TOPIC, json.dumps(topics))
         
         # generate template command
         # object ,location ,text 
         command_reference = ""
         if case_data["action"] in ["activate", "deactivate", "increase", "decrease"] :
-            command_template = case_data["action"]+" the "+case_data["action"]
+            command_reference = case_data["action"]+" the "+case_data["object"]
         else:
-            command_template = case_data["action"]+" to "+case_data["action"]
+            command_reference = case_data["action"]+" to "+case_data["object"]
 
         comparisons = TC_comparisons.get()
-        command_result = []
 
-        for command_data in comparisons:
-            if command_data["command"] == "": # no command met the thresh
-                command_result.append(0)
-            else:
-                if command_data["command"]==command_reference:
-                    command_result.append(2)
+        print("command reference:\n\t{}".format(command_reference))
+        command_result = {}
+        for com_thresh in np.arange(start=0.7,stop=1,step=0.010):
+            command_result_local = []
+            for command_data in comparisons:
+                # conv to df
+                df = pd.DataFrame(data=command_data)
+                # get those above thresh
+                above_thresh = df[df["match"]>com_thresh].sort_values("match",ascending=False)
+
+                if len(above_thresh) == 0: # no command met the thresh
+                    command_result_local.append(0)
                 else:
-                    command_result.append(1)
+                    if above_thresh["command"].iloc[0] ==command_reference:
+                        command_result_local.append(2)
+                    else:
+                        command_result_local.append(1)
+            # get best result
+            command_result["thresh_{:0.3f}".format(com_thresh)] = max(command_result_local)
 
-        # get best result
-        command_result = max(command_result)
 
 
         # log this
         sample_data = {
             "sample_id":        case_data["sample_index"],
-            "S":                wer_out["S"],
-            "D":                wer_out["D"],
-            "I":                wer_out["I"],
-            "C":                wer_out["C"],
-            "WER":              wer_out["WER"],
             "pk":               Pk,
-            "command_result":   command_result, # 0 indicates no returned result, 1 indicates incorrect command infered, 2 indicates correct commadn
+            # "command_result":   command_result, # 0 indicates no returned result, 1 indicates incorrect command infered, 2 indicates correct commadn
         }
+        sample_data.update(wer_out)
+        sample_data.update(command_result)
         print("sample_data:\n{}\n\n".format(sample_data))
         results = results.append(sample_data,ignore_index=True)
 

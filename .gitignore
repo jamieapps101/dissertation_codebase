@@ -17,3 +17,4 @@ persistent_storage/speech2text/app/data/
 .vscode
 persistent_storage/end2endtest/app/graphs_out
 persistent_storage/end2endtest/app/graph_data/
+persistent_storage/end2endtest/app/results/

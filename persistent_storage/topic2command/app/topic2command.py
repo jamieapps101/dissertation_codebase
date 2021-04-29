@@ -27,7 +27,7 @@ MQTT_IP                = get_env_val("MQTT_IP"                ,"127.0.0.1")
 MQTT_PORT              = get_env_val("MQTT_PORT"              ,"1883")
 INCOMING_TEXT_TOPIC    = get_env_val("INCOMING_TEXT_TOPIC"    ,"TC_input" )
 OUTGOING_COMM_TOPIC    = get_env_val("OUTGOING_COMM_TOPIC"    ,"TC_output" )
-MATCH_THRESH           = get_env_val("MATCH_THRESH"           ,"0.8")
+MATCH_THRESH           = get_env_val("MATCH_THRESH"           ,"0.0")
 
 MQTT_PORT              = int(MQTT_PORT)
 MATCH_THRESH           = float(MATCH_THRESH)
@@ -102,17 +102,19 @@ if __name__ == "__main__":
         data = segments_queue.get()
         out = []
         for segment in data:
+            if len(segment)==0:
+                continue
             # encode topic
             encode = bert_client_connection.encode([segment])
             # get cosine sims
             # get those above thresh
             matches = command_db.get_matches(encode)
-            out_data = None
-            if matches.shape[0] < 1:
-                print("no matches above thresh")
-                out_data={"command":""}
-            else:
-                print("best match:\n{}".format(matches.iloc[0]))
-                out_data={"command":matches.iloc[0]["command"]}
-                out.append(out_data)
+            # out_data = None
+            # if matches.shape[0] < 1:
+            #     print("no matches above thresh")
+            #     out_data={"command":""}
+            # else:
+            #     print("best match:\n{}".format(matches.iloc[0]))
+            #     out_data={"command":matches.iloc[0]["command"]}
+            out.append(matches.to_dict("records"))
         client.publish(OUTGOING_COMM_TOPIC,json.dumps(out))

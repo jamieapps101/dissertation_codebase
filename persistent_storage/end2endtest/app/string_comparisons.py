@@ -142,11 +142,11 @@ def myers_alg_string(a,b):
     # convert to unique identifers
     print("sc - d")
     words_raw = a.split()+b.split()
-    print("sc - e")
+    # print("sc - e")
     word_table = pd.unique(words_raw)
-    print("sc - f")
+    # print("sc - f")
     a_encoded = encode_words(word_table,a.split())
-    print("sc - g")
+    # print("sc - g")
     b_encoded = encode_words(word_table,b.split())
     print("sc - h")
     actions = myers_alg(a_encoded,b_encoded)
@@ -169,7 +169,7 @@ def calc_WER(actions):
     D = 0
     I = 0
     C = 0
-    print("sc - b")
+    # print("sc - b")
     last_action = None
     for action in actions:
         if action["key"]=="keep": # the action must be to keep
@@ -195,7 +195,7 @@ def calc_WER(actions):
                         D+=1
                         last_action="delete"
 
-    print("sc - c")
+    # print("sc - c")
     WER = (S+D+I)/(S+D+C)
     print("S:{}".format(S))
     print("D:{}".format(D))
