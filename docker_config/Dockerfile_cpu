@@ -6,6 +6,9 @@ RUN apt update && apt install -y libsndfile1 sox libgomp1  libpthread-stubs0-dev
 RUN mkdir -p /usr/local/share/nltk_data
 RUN python3 -m nltk.downloader -d /usr/local/share/nltk_data punkt
 
+
+RUN python3 -m pip install seaborn
+
 WORKDIR /app
 
 

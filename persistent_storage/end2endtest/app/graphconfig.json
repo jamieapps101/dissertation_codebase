@@ -5,28 +5,28 @@
             "seg_thresh": 0.0001
         },
         {
-            "fn": "",
-            "seg_thresh": 0.5
+            "fn": "2021_04_29-12_40_14.csv",
+            "seg_thresh": 0.00005
         },
         {
-            "fn": "",
-            "seg_thresh": 0.5
+            "fn": "2021_04_29-19_39_15.csv",
+            "seg_thresh": 0.00002
         },
         {
-            "fn": "",
-            "seg_thresh": 0.5
+            "fn": "2021_04_30-14_37_48.csv",
+            "seg_thresh": 0.00001
         },
         {
-            "fn": "",
-            "seg_thresh": 0.5
+            "fn": "2021_04_30-19_53_48.csv",
+            "seg_thresh": 0.0002
         },
         {
-            "fn": "",
-            "seg_thresh": 0.5
+            "fn": "2021_05_01-00_31_45.csv",
+            "seg_thresh": 0.0005
         },
         {
-            "fn": "",
-            "seg_thresh": 0.5
+            "fn": "2021_05_01-14_09_32.csv",
+            "seg_thresh": 0.001
         },
         {
             "fn": "",

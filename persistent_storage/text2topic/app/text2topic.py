@@ -11,7 +11,7 @@ import pandas as pd
 import numpy as np
 import tensorflow as tf
 
-SEG_THRESH = 0.00005
+SEG_THRESH = 0.001
 
 
 CONFIG_PATH = "/app/testconfig.json"
