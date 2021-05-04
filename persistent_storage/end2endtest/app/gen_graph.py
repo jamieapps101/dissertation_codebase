@@ -1,16 +1,4 @@
-# To do:
-# tensorflow learning graphs
-# - learning rate
-# - Pk (stacked)
-# - accuracy
-# - loss function
-
-# end to end testing graphs
-# accuracy for 
-# topic segmentation thres vs command match thresh
-
-# have a stacked graph, each line being a topic segmentation thresh. 
-# x axis being command match thresh, y axis being accuracy. end to end accuracy
+#! /usr/bin/python3 -i
 
 LOCAL_DATA_DIR = "/app/graph_data"
 TF_DATA_DIR    = "/text2topic/app/data/logs/04_20_14_14"
@@ -29,7 +17,7 @@ import json
 import pandas as pd
 import re
 import seaborn as sns
-
+sns.set_style("whitegrid")
 
 def get_lc(event_file, scalar_str):
     ea = event_accumulator.EventAccumulator(event_file)
@@ -204,6 +192,27 @@ if __name__=="__main__":
     kind="line", data=new_data); 
     do_save(sns_plot,"com_acc_vs_comm_thresh")
 
+    print("CST=0.70")
+    correct = new_data_df.loc[(new_data_df["classification"]=="correct")&(new_data_df["threshold"]==0.7)]["proportion"]
+    incorrect = new_data_df.loc[(new_data_df["classification"]=="incorrect")&(new_data_df["threshold"]==0.7)]["proportion"]
+    print("correct: {}".format(correct))
+    print("incorrect: {}".format(incorrect))
+
+
+    correct_wrt_thresh = new_data_df.loc[(new_data_df["classification"]=="correct")]["proportion"]
+    incorrect_wrt_thresh = new_data_df.loc[(new_data_df["classification"]=="incorrect")]["proportion"]
+    diff = correct_wrt_thresh.values - incorrect_wrt_thresh.values
+    diff_wrt_thresh = {}
+    diff_wrt_thresh["threshold"] = new_data_df.loc[(new_data_df["classification"]=="correct")]["threshold"].copy()
+    diff_wrt_thresh["difference"] = diff
+    diff_wrt_thresh = pd.DataFrame(data=diff_wrt_thresh)
+
+    sns_plot  = sns.relplot(x="threshold", y="difference", 
+    kind="line", data=diff_wrt_thresh); 
+    do_save(sns_plot,"diff_wrt_thresh")
+
+    best_thresh = diff_wrt_thresh.loc[diff_wrt_thresh["difference"]==diff_wrt_thresh["difference"].max()]["threshold"]
+    print("best_thresh:{}\n".format(best_thresh))
     # exit()
     # get best performing params:
     # for each segmentation thresh
@@ -246,7 +255,7 @@ if __name__=="__main__":
 
     raw_perf_data_df = pd.DataFrame.from_dict(raw_perf_data)
     proc_perf_data_df = pd.DataFrame.from_dict(proc_perf_data)
-    
+    # raw_perf_data_df["incorrect_correct_delta"] = 
 
     sns_plot = sns.JointGrid(
         data=proc_perf_data_df, 
@@ -282,7 +291,7 @@ if __name__=="__main__":
     pc_std_wer = 100*std_wer/avg_wer
     print("avg_wer:{}".format(avg_wer))
     print("std_wer:{}".format(std_wer))
-    print("pc_std_wer:{}".format(pc_std_wer))
+    print("pc_std_wer:{}\n".format(pc_std_wer))
     # plot distribution
     hist, bins = np.histogram(data["WER"])
     fig, ax = plt.subplots()
@@ -297,7 +306,7 @@ if __name__=="__main__":
     pc_std_pk = 100*std_pk/avg_pk
     print("avg_pk:{}".format(avg_pk))
     print("std_pk:{}".format(std_pk))
-    print("pc_std_pk:{}".format(pc_std_pk))
+    print("pc_std_pk:{}\n".format(pc_std_pk))
     # plot distribution
     hist, bins = np.histogram(data["pk"])
     fig, ax = plt.subplots()
@@ -311,7 +320,7 @@ if __name__=="__main__":
     data.plot.scatter(x="WER",y="pk",ax=ax)
     do_save(fig,"WER_pk_scatter")
     WER_pk_corr = data[["WER","pk"]].corr()
-    print("WER_pk_corr:{}".format(WER_pk_corr))
+    print("WER_pk_corr:{}\n".format(WER_pk_corr))
     # given Pk for top WER results
     ## get data WER in the lowest 10%
     best_wer = data[data["WER"]<data["WER"].quantile(0.10)]
@@ -322,7 +331,7 @@ if __name__=="__main__":
     # pc_std_pk = 100*std_pk/avg_pk
     # print("avg_pk:{}".format(avg_pk))
     # print("std_pk:{}".format(std_pk))
-    # print("pc_std_pk:{}".format(pc_std_pk))
+    # print("pc_std_pk:{}".format(pc_std_pk)
     sns_plot=sns.relplot(x="com_thresh", y="proportion",
              hue="seg_thresh", kind="line",
              data=raw_perf_data_df[raw_perf_data_df["classification"]=="correct"])
@@ -334,3 +343,99 @@ if __name__=="__main__":
     do_save(sns_plot,"comm_thresh_vs_incorrect")
 
 
+    # to compare the command comparison, the original data is needed
+    processed_data_ref = "/speech2text/app/data/processed/summary.csv"
+    with open(processed_data_ref,"r") as fp:
+        processed_data_df = pd.read_csv(fp)
+    merged_data = pd.merge(data,processed_data_df,how="inner",left_on="sample_id",right_on="sample_index")
+
+
+    # using best conditions
+    best_seg_thresh = raw_best_result["seg_thresh"].iloc[0]
+    best_com_thresh = raw_best_result["com_thresh"].iloc[0]
+    com_thresh_col = "thresh_{:0.3f}".format(best_com_thresh)
+    actions = merged_data["action"].unique()
+    action_results = {}
+    for action in actions:
+        res = merged_data.loc[
+            (merged_data["action"]==action) &
+            (merged_data["seg_thresh"]==best_seg_thresh)
+            ][com_thresh_col].value_counts()
+
+        pc_res = 100*res/res.sum()
+        res_dict = {}
+        for k,v in lookup.items():
+            if v in pc_res:
+                res_dict[k]=pc_res[v]
+            else:
+                res_dict[k]=0
+        action_results[action] = res_dict
+
+
+    objects = merged_data["action"].unique()
+    object_results = {}
+    for object_n in objects:
+        res = merged_data.loc[
+            (merged_data["object"]==object_n) &
+            (merged_data["seg_thresh"]==best_seg_thresh)
+            ][com_thresh_col].value_counts()
+
+        pc_res = 100*res/res.sum()
+        res_dict = {}
+        for k,v in lookup.items():
+            if v in pc_res:
+                res_dict[k]=pc_res[v]
+            else:
+                res_dict[k]=0
+        object_results[object_n] = res_dict
+
+    # conf_mats
+    # objects = merged_data["object"].unique()
+    objects = [
+        "heat",
+        "lights",
+        "music",
+        "English",
+        "Chinese",
+        "German",
+        "Korean",
+    ]
+    # actions = merged_data["action"].unique()
+    actions = [
+        "increase",
+        "decrease",
+        "activate",
+        "deactivate",
+        "change language",
+    ]
+    data_filler = np.zeros((len(actions),len(objects)))
+    res_mat_correct   = pd.DataFrame(data=data_filler.copy(),index=actions,columns=objects)
+    res_mat_incorrect = pd.DataFrame(data=data_filler.copy(),index=actions,columns=objects)
+    res_mat_nc        = pd.DataFrame(data=data_filler.copy(),index=actions,columns=objects)
+    ## correct
+    for object_n in objects:
+        for action_n in actions:
+            res = merged_data.loc[
+                (merged_data["object"]==object_n) &
+                (merged_data["action"]==action_n) &
+                (merged_data["seg_thresh"]==best_seg_thresh)
+                ][com_thresh_col].value_counts()
+
+            pc_res = 100*res/res.sum()
+            if len(pc_res) == 0:
+                res_mat_correct[object_n].loc[action_n]   = -1
+                res_mat_incorrect[object_n].loc[action_n] = -1
+                res_mat_nc[object_n].loc[action_n]        = -1
+            else:
+                if 2 in pc_res:
+                    res_mat_correct[object_n].loc[action_n]   = pc_res[2]
+                if 1 in pc_res:
+                    res_mat_incorrect[object_n].loc[action_n] = pc_res[1]
+                if 0 in pc_res:
+                    res_mat_nc[object_n].loc[action_n]        = pc_res[0]
+
+    change_language_stats = merged_data.loc[
+        (merged_data["action"]=="change language") &
+        (merged_data["seg_thresh"]==0.00005)
+        ]["thresh_0.910"].value_counts()
+    change_language_stats_pc = 100*change_language_stats/change_language_stats.sum()
